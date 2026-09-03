@@ -5,6 +5,7 @@ A small native doorway to Dhwani: click the bar icon, choose an episode, and kee
 > This first release is a private developer preview. Its default API is local and must be running with populated podcast data before installation.
 
 ![Omarchy plugin](https://img.shields.io/badge/Omarchy-4.0%2B-black)
+[![CI](https://github.com/arorashu/dhwani-omarchy/actions/workflows/ci.yml/badge.svg)](https://github.com/arorashu/dhwani-omarchy/actions/workflows/ci.yml)
 
 ## The first cut
 
@@ -20,7 +21,7 @@ There is deliberately no account screen, transcript reader, queue manager, or se
 
 ## Requirements
 
-Omarchy 4.0 or newer, plus `curl`, `python3`, `mpv`, and `mpv-mpris`. Current Omarchy installations include these media pieces.
+Omarchy 4.0 or newer, plus `curl`, Python 3.10 or newer, `mpv`, and `mpv-mpris`. Current Omarchy installations include these media pieces.
 
 ## Install
 
@@ -142,6 +143,7 @@ qmllint -I /usr/share/omarchy/shell BarWidget.qml Panel.qml
 node tests/model.test.js
 python3 tests/test_play.py
 ruff check play.py tests/test_play.py
+ruff format --check play.py tests/test_play.py
 ```
 
 ## Controls

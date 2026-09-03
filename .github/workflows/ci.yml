@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: Install test tools
+        run: pacman -Syu --noconfirm git jq nodejs python qt6-declarative quickshell ruff
+      - uses: actions/checkout@v4
+      - name: Fetch Omarchy 4.0.2 contracts
+        run: git clone --depth 1 --branch v4.0.2 https://github.com/basecamp/omarchy.git /tmp/omarchy
+      - name: Validate manifest
+        run: /tmp/omarchy/bin/omarchy-plugin-validate .
+      - name: Lint QML
+        run: qmllint -I /tmp/omarchy/shell BarWidget.qml Panel.qml
+      - name: Test model
+        run: node tests/model.test.js
+      - name: Test playback boundary
+        run: python tests/test_play.py
+      - name: Lint Python
+        run: ruff check play.py tests/test_play.py && ruff format --check play.py tests/test_play.py
