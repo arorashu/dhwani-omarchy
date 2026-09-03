@@ -35,7 +35,7 @@ def connect(socket_file: Path) -> socket.socket | None:
     try:
         client.connect(str(socket_file))
         return client
-    except (ConnectionError, FileNotFoundError, socket.timeout):
+    except OSError:
         client.close()
         socket_file.unlink(missing_ok=True)
         return None
@@ -49,7 +49,7 @@ def request(client: socket.socket, replies, command: list, request_id: int) -> d
             response = json.loads(line)
             if response.get("request_id") == request_id:
                 return response
-    except (ConnectionError, json.JSONDecodeError, socket.timeout, OSError) as error:
+    except (json.JSONDecodeError, OSError) as error:
         raise OSError("Dhwani player did not answer") from error
     raise OSError("Dhwani player did not answer")
 
