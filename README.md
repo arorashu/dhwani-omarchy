@@ -139,7 +139,10 @@ Playback continues when the panel or shell closes, appears through MPRIS, and no
 
 ```bash
 omarchy plugin validate .
-qmllint -I /usr/share/omarchy/shell BarWidget.qml Panel.qml
+imports=$(mktemp -d)
+ln -s /usr/share/omarchy/shell "$imports/qs"
+/usr/lib/qt6/bin/qmllint -I "$imports" BarWidget.qml Panel.qml
+rm -rf "$imports"
 node tests/model.test.js
 python3 tests/test_play.py
 ruff check play.py tests/test_play.py

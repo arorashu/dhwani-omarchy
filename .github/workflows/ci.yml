@@ -20,7 +20,10 @@ jobs:
       - name: Validate manifest
         run: /tmp/omarchy/bin/omarchy-plugin-validate .
       - name: Lint QML
-        run: qmllint -I /tmp/omarchy/shell BarWidget.qml Panel.qml
+        run: |
+          mkdir -p /tmp/qml-imports
+          ln -s /tmp/omarchy/shell /tmp/qml-imports/qs
+          /usr/lib/qt6/bin/qmllint -I /tmp/qml-imports BarWidget.qml Panel.qml
       - name: Test model
         run: node tests/model.test.js
       - name: Test playback boundary
