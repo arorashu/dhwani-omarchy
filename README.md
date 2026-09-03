@@ -13,8 +13,9 @@ A small native doorway to Dhwani: click the bar icon, choose an episode, and kee
 - one keyboard-first listening panel
 - a short, de-duplicated feed from Dhwani
 - audio handed to a dedicated, single-owner `mpv` instance
-- play/pause through both the panel and Omarchy's existing MPRIS media surface
-- reactive playing/paused feedback from the owned `mpv` player
+- play/pause and 15-second back/30-second forward actions
+- a clickable progress bar with elapsed and total time
+- reactive playback feedback through the panel and Omarchy's existing MPRIS media surface
 - live Omarchy theme, font, spacing, and panel behavior
 
 There is deliberately no account screen, transcript reader, queue manager, or second media player here. The plugin asks Dhwani what is worth hearing and lets the OS do the rest.
@@ -155,7 +156,10 @@ ruff format --check play.py tests/test_play.py
 - click: open or close
 - right-click: refresh and open
 - `↑` / `↓` or `j` / `k`: choose
+- `←` or `h`: back 15 seconds
+- `→` or `l`: forward 30 seconds
 - `enter` or `space`: play an episode, or toggle play/pause on the current one
+- click the progress bar: seek to a position
 - `r`: refresh
 - `escape`: close
 

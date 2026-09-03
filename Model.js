@@ -107,6 +107,22 @@ function formatDuration(seconds) {
   return Math.max(1, minutes) + "m"
 }
 
+function formatPosition(seconds) {
+  var value = Math.max(0, Math.floor(Number(seconds) || 0))
+  var hours = Math.floor(value / 3600)
+  var minutes = Math.floor((value % 3600) / 60)
+  var remainder = value % 60
+  var secondsText = (remainder < 10 ? "0" : "") + remainder
+  if (hours) return hours + ":" + (minutes < 10 ? "0" : "") + minutes + ":" + secondsText
+  return minutes + ":" + secondsText
+}
+
+function playbackProgress(position, length) {
+  var total = Number(length) || 0
+  if (total <= 0) return 0
+  return Math.max(0, Math.min(1, (Number(position) || 0) / total))
+}
+
 if (typeof module !== "undefined") {
   module.exports = {
     normalizeBaseUrl: normalizeBaseUrl,
@@ -114,6 +130,8 @@ if (typeof module !== "undefined") {
     playableUrl: playableUrl,
     playbackTitle: playbackTitle,
     parseFeed: parseFeed,
-    formatDuration: formatDuration
+    formatDuration: formatDuration,
+    formatPosition: formatPosition,
+    playbackProgress: playbackProgress
   }
 }

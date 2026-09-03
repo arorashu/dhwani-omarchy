@@ -30,6 +30,10 @@ Panel {
   readonly property int staleAfterSec: Math.max(30, parseInt(setting("staleAfterSec", 300), 10) || 300)
   readonly property string helperPath: decodeURIComponent(String(Qt.resolvedUrl("play.py")).replace(/^file:\/\//, ""))
   readonly property int rowHeight: Style.space(66)
+  readonly property var playbackPlayer: currentPlayback ? currentPlayback.player : null
+  readonly property real playbackPosition: playbackPlayer && playbackPlayer.positionSupported ? Math.max(0, Number(playbackPlayer.position) || 0) : 0
+  readonly property real playbackLength: playbackPlayer && playbackPlayer.lengthSupported ? Math.max(0, Number(playbackPlayer.length) || 0) : (currentPlayback ? currentPlayback.episode.duration : 0)
+  readonly property bool canSeek: playbackPlayer !== null && playbackPlayer.canSeek === true
 
   function open() {
     controller.show()
@@ -115,10 +119,25 @@ Panel {
   }
 
   function togglePlayer(player) {
+    if (!player) return false
     if (player.isPlaying && player.canPause) player.pause()
     else if (!player.isPlaying && player.canPlay) player.play()
     else if (player.canTogglePlaying) player.togglePlaying()
     else return false
+    errorText = ""
+    return true
+  }
+
+  function seekBy(seconds) {
+    if (!canSeek) return false
+    playbackPlayer.seek(seconds)
+    errorText = ""
+    return true
+  }
+
+  function seekTo(progress) {
+    if (!canSeek || !playbackPlayer.positionSupported || playbackLength <= 0) return false
+    playbackPlayer.position = Math.max(0, Math.min(1, progress)) * playbackLength
     errorText = ""
     return true
   }
@@ -162,6 +181,13 @@ Panel {
     }
   }
 
+  Timer {
+    interval: 1000
+    repeat: true
+    running: root.opened && root.playbackPlayer && root.playbackPlayer.isPlaying && root.playbackPlayer.positionSupported
+    onTriggered: if (root.playbackPlayer) root.playbackPlayer.positionChanged()
+  }
+
   KeyboardPanel {
     id: panel
     anchorItem: root.anchorItem
@@ -171,13 +197,14 @@ Panel {
     centerOnBar: true
     focusTarget: keyCatcher
     contentWidth: fittedContentWidth(Style.space(520))
-    contentHeight: fittedContentHeight(Style.space(500))
+    contentHeight: fittedContentHeight(Style.space(570))
 
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
       onMoveRequested: function(dx, dy) {
-        if (dy) root.moveCursor(dy)
+        if (dx) root.seekBy(dx < 0 ? -15 : 30)
+        else if (dy) root.moveCursor(dy)
       }
       onActivateRequested: root.playSelected()
       onCloseRequested: root.close()
@@ -257,7 +284,7 @@ Panel {
         anchors.top: separator.bottom
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.bottom: footer.top
+        anchors.bottom: playbackControls.visible ? playbackControls.top : footer.top
 
         Column {
           anchors.centerIn: parent
@@ -406,6 +433,135 @@ Panel {
                   onClicked: root.playEpisode(modelData)
                 }
               }
+            }
+          }
+        }
+      }
+
+      Item {
+        id: playbackControls
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: footer.top
+        height: visible ? Style.space(76) : 0
+        visible: root.currentPlayback !== null
+
+        Rectangle {
+          anchors.top: parent.top
+          anchors.left: parent.left
+          anchors.right: parent.right
+          height: Style.spacing.hairline
+          color: root.foreground
+          opacity: 0.12
+        }
+
+        Row {
+          id: transport
+          anchors.top: parent.top
+          anchors.topMargin: Style.space(5)
+          anchors.horizontalCenter: parent.horizontalCenter
+          spacing: Style.space(8)
+
+          PanelActionButton {
+            iconText: "−15"
+            tooltipText: "Back 15 seconds · ← or h"
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            fontSize: Style.font.caption
+            size: Style.space(30)
+            bordered: true
+            enabled: root.canSeek
+            onClicked: root.seekBy(-15)
+          }
+
+          PanelActionButton {
+            iconText: root.playbackPlayer && root.playbackPlayer.isPlaying ? "󰏤" : "󰐊"
+            tooltipText: root.playbackPlayer && root.playbackPlayer.isPlaying ? "Pause · enter or space" : "Play · enter or space"
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            size: Style.space(30)
+            bordered: true
+            enabled: root.playbackPlayer !== null
+            onClicked: root.togglePlayer(root.playbackPlayer)
+          }
+
+          PanelActionButton {
+            iconText: "+30"
+            tooltipText: "Forward 30 seconds · → or l"
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            fontSize: Style.font.caption
+            size: Style.space(30)
+            bordered: true
+            enabled: root.canSeek
+            onClicked: root.seekBy(30)
+          }
+        }
+
+        Item {
+          id: timeline
+          anchors.left: parent.left
+          anchors.right: parent.right
+          anchors.bottom: parent.bottom
+          height: Style.space(32)
+
+          Text {
+            id: elapsed
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
+            width: Style.space(48)
+            text: Model.formatPosition(root.playbackPosition)
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+          }
+
+          Text {
+            id: total
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            width: Style.space(56)
+            text: Model.formatPosition(root.playbackLength)
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            horizontalAlignment: Text.AlignRight
+          }
+
+          Item {
+            id: seekSurface
+            anchors.left: elapsed.right
+            anchors.leftMargin: Style.space(8)
+            anchors.right: total.left
+            anchors.rightMargin: Style.space(8)
+            anchors.verticalCenter: parent.verticalCenter
+            height: Style.space(20)
+
+            Rectangle {
+              id: progressTrack
+              anchors.left: parent.left
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              height: Math.max(2, Style.spacing.hairline * 2)
+              radius: height / 2
+              color: root.foreground
+              opacity: 0.18
+            }
+
+            Rectangle {
+              anchors.left: progressTrack.left
+              anchors.verticalCenter: progressTrack.verticalCenter
+              width: progressTrack.width * Model.playbackProgress(root.playbackPosition, root.playbackLength)
+              height: progressTrack.height
+              radius: height / 2
+              color: Color.accent
+            }
+
+            MouseArea {
+              anchors.fill: parent
+              enabled: root.canSeek && root.playbackPlayer.positionSupported && root.playbackLength > 0
+              cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+              onClicked: function(mouse) { root.seekTo(mouse.x / width) }
             }
           }
         }

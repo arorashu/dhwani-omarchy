@@ -6,6 +6,13 @@ assert.strictEqual(Model.feedUrl('--config=/tmp/evil'), '');
 assert.strictEqual(Model.playbackTitle({ title: 'Episode', podcastTitle: 'Podcast' }), 'Episode · Podcast');
 assert.strictEqual(Model.formatDuration(59), '1m');
 assert.strictEqual(Model.formatDuration(3661), '1h 01m');
+assert.strictEqual(Model.formatPosition(0), '0:00');
+assert.strictEqual(Model.formatPosition(65.9), '1:05');
+assert.strictEqual(Model.formatPosition(3661), '1:01:01');
+assert.strictEqual(Model.playbackProgress(30, 120), 0.25);
+assert.strictEqual(Model.playbackProgress(-1, 120), 0);
+assert.strictEqual(Model.playbackProgress(140, 120), 1);
+assert.strictEqual(Model.playbackProgress(10, 0), 0);
 
 const media = [
   { path: 'file:///tmp/not-a-podcast.mp3' },
