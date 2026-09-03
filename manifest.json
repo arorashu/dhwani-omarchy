@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "id": "io.dhwani.listen",
+  "name": "Dhwani",
+  "version": "0.1.0",
+  "author": "Dhwani",
+  "license": "MIT",
+  "description": "A quiet doorway from the Omarchy bar to something worth hearing.",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Dhwani",
+    "description": "Pick an episode and listen through Omarchy's native media controls.",
+    "category": "Media",
+    "allowMultiple": false,
+    "defaultSection": "center",
+    "defaults": {
+      "apiBase": "http://127.0.0.1:8791",
+      "episodeLimit": 7,
+      "staleAfterSec": 300
+    },
+    "schema": [
+      {
+        "key": "apiBase",
+        "type": "string",
+        "label": "Dhwani API",
+        "defaultValue": "http://127.0.0.1:8791"
+      },
+      {
+        "key": "episodeLimit",
+        "type": "integer",
+        "label": "Episodes",
+        "min": 3,
+        "max": 10,
+        "step": 1,
+        "defaultValue": 7
+      },
+      {
+        "key": "staleAfterSec",
+        "type": "integer",
+        "label": "Refresh if older than (seconds)",
+        "min": 30,
+        "max": 3600,
+        "step": 30,
+        "defaultValue": 300
+      }
+    ]
+  }
+}
