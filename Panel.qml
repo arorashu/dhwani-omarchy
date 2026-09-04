@@ -442,126 +442,178 @@ Panel {
         id: playbackControls
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.bottom: footer.top
+        anchors.bottom: parent.bottom
         height: visible ? Style.space(76) : 0
         visible: root.currentPlayback !== null
 
-        Rectangle {
+        Item {
+          id: timeline
           anchors.top: parent.top
           anchors.left: parent.left
           anchors.right: parent.right
-          height: Style.spacing.hairline
-          color: root.foreground
-          opacity: 0.12
-        }
+          height: Style.space(14)
 
-        Row {
-          id: transport
-          anchors.top: parent.top
-          anchors.topMargin: Style.space(5)
-          anchors.horizontalCenter: parent.horizontalCenter
-          spacing: Style.space(8)
-
-          PanelActionButton {
-            iconText: "−15"
-            tooltipText: "Back 15 seconds · ← or h"
-            foreground: root.foreground
-            fontFamily: root.fontFamily
-            fontSize: Style.font.caption
-            size: Style.space(30)
-            bordered: true
-            enabled: root.canSeek
-            onClicked: root.seekBy(-15)
+          Rectangle {
+            id: progressTrack
+            anchors.top: parent.top
+            anchors.left: parent.left
+            anchors.right: parent.right
+            height: Math.max(2, Style.spacing.hairline * 2)
+            color: root.foreground
+            opacity: 0.18
           }
 
-          PanelActionButton {
-            iconText: root.playbackPlayer && root.playbackPlayer.isPlaying ? "󰏤" : "󰐊"
-            tooltipText: root.playbackPlayer && root.playbackPlayer.isPlaying ? "Pause · enter or space" : "Play · enter or space"
-            foreground: root.foreground
-            fontFamily: root.fontFamily
-            size: Style.space(30)
-            bordered: true
-            enabled: root.playbackPlayer !== null
-            onClicked: root.togglePlayer(root.playbackPlayer)
+          Rectangle {
+            anchors.top: progressTrack.top
+            anchors.left: progressTrack.left
+            width: progressTrack.width * Model.playbackProgress(root.playbackPosition, root.playbackLength)
+            height: progressTrack.height
+            color: Color.accent
           }
 
-          PanelActionButton {
-            iconText: "+30"
-            tooltipText: "Forward 30 seconds · → or l"
-            foreground: root.foreground
-            fontFamily: root.fontFamily
-            fontSize: Style.font.caption
-            size: Style.space(30)
-            bordered: true
-            enabled: root.canSeek
-            onClicked: root.seekBy(30)
+          MouseArea {
+            anchors.fill: parent
+            enabled: root.canSeek && root.playbackPlayer.positionSupported && root.playbackLength > 0
+            cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+            onClicked: function(mouse) { root.seekTo(mouse.x / width) }
           }
         }
 
         Item {
-          id: timeline
+          anchors.top: timeline.bottom
           anchors.left: parent.left
           anchors.right: parent.right
           anchors.bottom: parent.bottom
-          height: Style.space(32)
 
-          Text {
-            id: elapsed
+          Column {
             anchors.left: parent.left
+            anchors.right: transport.left
+            anchors.rightMargin: Style.space(12)
             anchors.verticalCenter: parent.verticalCenter
-            width: Style.space(48)
-            text: Model.formatPosition(root.playbackPosition)
-            color: root.dim
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
+            spacing: Style.space(3)
+
+            Text {
+              width: parent.width
+              text: root.errorText || root.currentPlayback.episode.title
+              color: root.errorText ? (root.bar ? root.bar.urgent : Color.urgent) : root.foreground
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              font.bold: true
+              elide: Text.ElideRight
+            }
+
+            Text {
+              width: parent.width
+              text: root.currentPlayback.episode.podcastTitle
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Math.max(8, Style.font.caption - 1)
+              elide: Text.ElideRight
+            }
           }
 
-          Text {
-            id: total
+          Row {
+            id: transport
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: Style.space(6)
+
+            Column {
+              spacing: Style.space(1)
+
+              PanelActionButton {
+                iconText: "−15"
+                tooltipText: "Back 15 seconds · ← or h"
+                foreground: root.foreground
+                fontFamily: root.fontFamily
+                fontSize: Style.font.caption
+                size: Style.space(30)
+                radius: size / 2
+                enabled: root.canSeek
+                onClicked: root.seekBy(-15)
+              }
+
+              Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: "h"
+                color: root.dim
+                font.family: root.fontFamily
+                font.pixelSize: Math.max(8, Style.font.caption - 2)
+              }
+            }
+
+            Column {
+              spacing: Style.space(1)
+
+              PanelActionButton {
+                iconText: root.playbackPlayer && root.playbackPlayer.isPlaying ? "󰏤" : "󰐊"
+                tooltipText: root.playbackPlayer && root.playbackPlayer.isPlaying ? "Pause · enter or space" : "Play · enter or space"
+                foreground: root.playbackPlayer && root.playbackPlayer.isPlaying ? Color.accent : root.foreground
+                hoverColor: Color.accent
+                fontFamily: root.fontFamily
+                size: Style.space(34)
+                radius: size / 2
+                bordered: true
+                enabled: root.playbackPlayer !== null
+                onClicked: root.togglePlayer(root.playbackPlayer)
+              }
+
+              Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: "space"
+                color: root.dim
+                font.family: root.fontFamily
+                font.pixelSize: Math.max(8, Style.font.caption - 2)
+              }
+            }
+
+            Column {
+              spacing: Style.space(1)
+
+              PanelActionButton {
+                iconText: "+30"
+                tooltipText: "Forward 30 seconds · → or l"
+                foreground: root.foreground
+                fontFamily: root.fontFamily
+                fontSize: Style.font.caption
+                size: Style.space(30)
+                radius: size / 2
+                enabled: root.canSeek
+                onClicked: root.seekBy(30)
+              }
+
+              Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: "l"
+                color: root.dim
+                font.family: root.fontFamily
+                font.pixelSize: Math.max(8, Style.font.caption - 2)
+              }
+            }
+          }
+
+          Column {
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
-            width: Style.space(56)
-            text: Model.formatPosition(root.playbackLength)
-            color: root.dim
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            horizontalAlignment: Text.AlignRight
-          }
+            width: Style.space(72)
+            spacing: Style.space(3)
 
-          Item {
-            id: seekSurface
-            anchors.left: elapsed.right
-            anchors.leftMargin: Style.space(8)
-            anchors.right: total.left
-            anchors.rightMargin: Style.space(8)
-            anchors.verticalCenter: parent.verticalCenter
-            height: Style.space(20)
-
-            Rectangle {
-              id: progressTrack
-              anchors.left: parent.left
-              anchors.right: parent.right
-              anchors.verticalCenter: parent.verticalCenter
-              height: Math.max(2, Style.spacing.hairline * 2)
-              radius: height / 2
+            Text {
+              width: parent.width
+              text: Model.formatPosition(root.playbackPosition)
               color: root.foreground
-              opacity: 0.18
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              horizontalAlignment: Text.AlignRight
             }
 
-            Rectangle {
-              anchors.left: progressTrack.left
-              anchors.verticalCenter: progressTrack.verticalCenter
-              width: progressTrack.width * Model.playbackProgress(root.playbackPosition, root.playbackLength)
-              height: progressTrack.height
-              radius: height / 2
-              color: Color.accent
-            }
-
-            MouseArea {
-              anchors.fill: parent
-              enabled: root.canSeek && root.playbackPlayer.positionSupported && root.playbackLength > 0
-              cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-              onClicked: function(mouse) { root.seekTo(mouse.x / width) }
+            Text {
+              width: parent.width
+              text: "of " + Model.formatPosition(root.playbackLength)
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Math.max(8, Style.font.caption - 1)
+              horizontalAlignment: Text.AlignRight
             }
           }
         }
@@ -572,7 +624,8 @@ Panel {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
-        height: Style.space(32)
+        height: visible ? Style.space(32) : 0
+        visible: !playbackControls.visible
 
         Rectangle {
           anchors.left: parent.left
@@ -580,7 +633,7 @@ Panel {
           width: Style.space(6)
           height: width
           radius: width / 2
-          color: root.errorText ? (root.bar ? root.bar.urgent : Color.urgent) : (root.currentPlayback && root.currentPlayback.player.isPlaying ? Color.accent : root.dim)
+          color: root.errorText ? (root.bar ? root.bar.urgent : Color.urgent) : root.dim
         }
 
         Text {
@@ -588,7 +641,7 @@ Panel {
           anchors.leftMargin: Style.space(14)
           anchors.verticalCenter: parent.verticalCenter
           width: parent.width - Style.space(14)
-          text: root.errorText && root.episodes.length ? root.errorText : (root.launchingEpisodeId ? "Opening episode…" : (root.currentPlayback ? (root.currentPlayback.player.isPlaying ? "Playing · " : "Paused · ") + root.currentPlayback.episode.title : root.episodes.length + " ready  ·  ↑↓ choose  ·  enter play  ·  r refresh"))
+          text: root.errorText && root.episodes.length ? root.errorText : (root.launchingEpisodeId ? "Opening episode…" : root.episodes.length + " ready  ·  ↑↓ choose  ·  enter play  ·  r refresh")
           color: root.dim
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
