@@ -494,7 +494,7 @@ Panel {
 
             Text {
               width: parent.width
-              text: root.errorText || root.currentPlayback.episode.title
+              text: root.errorText || (root.currentPlayback ? root.currentPlayback.episode.title : "")
               color: root.errorText ? (root.bar ? root.bar.urgent : Color.urgent) : root.foreground
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
@@ -504,7 +504,7 @@ Panel {
 
             Text {
               width: parent.width
-              text: root.currentPlayback.episode.podcastTitle
+              text: root.currentPlayback ? root.currentPlayback.episode.podcastTitle : ""
               color: root.dim
               font.family: root.fontFamily
               font.pixelSize: Math.max(8, Style.font.caption - 1)
