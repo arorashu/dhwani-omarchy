@@ -2,7 +2,7 @@
 
 A small native doorway to Dhwani: click the bar icon, choose an episode, and keep working with playback in Omarchy's existing media surface.
 
-> This first release is a private developer preview. Its default API is local and must be running with populated podcast data before installation.
+> This first release is a private developer preview. It reads the public Dhwani API as a logged-out radio, then keeps a local listening queue.
 
 ![Omarchy plugin](https://img.shields.io/badge/Omarchy-4.0%2B-black)
 [![CI](https://github.com/arorashu/dhwani-omarchy/actions/workflows/ci.yml/badge.svg)](https://github.com/arorashu/dhwani-omarchy/actions/workflows/ci.yml)
@@ -11,7 +11,10 @@ A small native doorway to Dhwani: click the bar icon, choose an episode, and kee
 
 - one quiet bar icon
 - one keyboard-first listening panel
-- a short, de-duplicated feed from Dhwani
+- Trending, Queue, and All Shows tabs
+- paginated show lists and in-show episode lists
+- a local queue that stacks newly played episodes on top
+- 10-minute client-side cache so tab switches do not refetch
 - audio handed to a dedicated, single-owner `mpv` instance
 - play/pause and 15-second back/30-second forward actions
 - a clickable progress bar with elapsed and total time
@@ -71,33 +74,39 @@ Check that the chord is free with `omarchy menu keybindings --print`, then run `
 
 ## Configure
 
-The defaults point to the isolated local API at `http://127.0.0.1:8791`. Omarchy's bar settings expose:
+The defaults point at the public API. Omarchy's bar settings expose:
 
 - `apiBase`
 - `episodeLimit`
-- `staleAfterSec` (the age that triggers a fetch when the panel opens)
+- `staleAfterSec` (client cache TTL; default 10 minutes)
 
 The corresponding `shell.json` entry is plain data:
 
 ```json
 {
   "id": "io.dhwani.listen",
-  "apiBase": "http://127.0.0.1:8791",
-  "episodeLimit": 7,
-  "staleAfterSec": 300
+  "apiBase": "https://api-v1.dhwani.io",
+  "episodeLimit": 10,
+  "staleAfterSec": 600
 }
 ```
 
+Local listening state lives in `~/.local/state/dhwani-omarchy/state.json`.
+
 ## API contract
 
-The plugin performs one anonymous request:
+Anonymous requests send `Origin: https://podcast.dhwani.io` and a Dhwani user agent:
 
 ```http
 GET /v1/foryou/all
+GET /v1/podcasts?limit=20&offset=0
+GET /v1/podcasts/{podcast_id}?limit=20&offset=0
 Accept: application/json
+Origin: https://podcast.dhwani.io
+User-Agent: Dhwani-Omarchy/0.1 (+https://github.com/arorashu/dhwani-omarchy)
 ```
 
-It reads `daily_listen`, `picks`, `trending`, then category rows, in that order. A playable item needs only:
+A playable item needs only:
 
 ```json
 {
@@ -146,8 +155,10 @@ ln -s /usr/share/omarchy/shell "$imports/qs"
 rm -rf "$imports"
 node tests/model.test.js
 python3 tests/test_play.py
-ruff check play.py tests/test_play.py
-ruff format --check play.py tests/test_play.py
+python3 tests/test_state.py
+python3 tests/test_e2e.py
+ruff check play.py state.py tests
+ruff format --check play.py state.py tests
 ```
 
 ## Controls
@@ -155,13 +166,12 @@ ruff format --check play.py tests/test_play.py
 - `super` + `ctrl` + `m`: open or close (when the optional binding above is installed)
 - click: open or close
 - right-click: refresh and open
+- `←` / `→` or `h` / `l`: switch Trending, Queue, and All Shows
 - `↑` / `↓` or `j` / `k`: choose
-- `←` or `h`: back 15 seconds
-- `→` or `l`: forward 30 seconds
-- `enter` or `space`: play an episode, or toggle play/pause on the current one
-- click the progress bar: seek to a position
-- `r`: refresh
-- `escape`: close
+- `enter` or `space`: open a show, play an episode, or toggle the current one
+- click the progress bar or −15 / +30: seek
+- `r`: refresh the current remote list, ignoring cache
+- `escape`: leave a show, or close
 
 ## License
 

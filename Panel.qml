@@ -1,4 +1,5 @@
 import QtQuick
+import Quickshell
 import Quickshell.Io
 import Quickshell.Services.Mpris
 import qs.Commons
@@ -12,75 +13,128 @@ Panel {
 
   property var anchorItem: null
   property var hostWidget: null
-  property var episodes: []
+  property int tab: 0
+  property var trending: []
+  property var queue: []
+  property var shows: []
+  property var showEpisodes: []
+  property var openShow: null
   property int selectedIndex: 0
+  property int trendingIndex: 0
+  property int queueIndex: 0
+  property int showsIndex: 0
+  property int showIndex: 0
+  property int showsTotal: 0
+  property int showTotal: 0
+  property double trendingAt: 0
+  property double showsAt: 0
+  property double showAt: 0
   property string errorText: ""
   property string launchingEpisodeId: ""
+  property string pendingKind: ""
+  property real pendingSeek: 0
   property bool refreshing: false
-  property double lastFetchMs: 0
+  property bool stateReady: false
 
   readonly property var barIdentity: hostWidget || root
   readonly property var mprisPlayers: Mpris.players ? Mpris.players.values : []
+  readonly property var visibleRows: tab === 1 ? queue : (tab === 2 ? (openShow ? showEpisodes : shows) : trending)
   readonly property var currentPlayback: findCurrentPlayback()
   readonly property color foreground: bar ? bar.foreground : Color.foreground
   readonly property color dim: Color.muted
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
-  readonly property string apiBase: Model.normalizeBaseUrl(setting("apiBase", "http://127.0.0.1:8791"))
-  readonly property int episodeLimit: Math.max(3, Math.min(10, parseInt(setting("episodeLimit", 7), 10) || 7))
-  readonly property int staleAfterSec: Math.max(30, parseInt(setting("staleAfterSec", 300), 10) || 300)
+  readonly property string apiBase: Model.normalizeBaseUrl(setting("apiBase", "https://api-v1.dhwani.io"))
+  readonly property int episodeLimit: Math.max(3, Math.min(20, parseInt(setting("episodeLimit", 10), 10) || 10))
+  readonly property int staleAfterMs: Math.max(30000, (parseInt(setting("staleAfterSec", 600), 10) || 600) * 1000)
   readonly property string helperPath: decodeURIComponent(String(Qt.resolvedUrl("play.py")).replace(/^file:\/\//, ""))
+  readonly property string stateDir: (Quickshell.env("XDG_STATE_HOME") || (Quickshell.env("HOME") + "/.local/state")) + "/dhwani-omarchy"
   readonly property int rowHeight: Style.space(66)
   readonly property var playbackPlayer: currentPlayback ? currentPlayback.player : null
   readonly property real playbackPosition: playbackPlayer && playbackPlayer.positionSupported ? Math.max(0, Number(playbackPlayer.position) || 0) : 0
   readonly property real playbackLength: playbackPlayer && playbackPlayer.lengthSupported ? Math.max(0, Number(playbackPlayer.length) || 0) : (currentPlayback ? currentPlayback.episode.duration : 0)
   readonly property bool canSeek: playbackPlayer !== null && playbackPlayer.canSeek === true
+  readonly property var tabs: ["Trending", "Queue", "All Shows"]
 
   function open() {
     controller.show()
     Qt.callLater(function() {
-      var index = playbackIndex()
-      if (index >= 0) {
-        selectedIndex = index
-        moveCursor(0)
-      }
+      restoreIndex()
+      moveCursor(0)
     })
-    if (!episodes.length || Date.now() - lastFetchMs > staleAfterSec * 1000) refresh()
+    ensureData(false)
   }
 
-  function close() { controller.hide() }
+  function close() {
+    rememberPlayback()
+    saveState()
+    controller.hide()
+  }
   function toggle() { opened ? close() : open() }
   function switchPanel(direction) {
     if (bar && typeof bar.switchPanelFrom === "function") return bar.switchPanelFrom(barIdentity, direction)
     return false
   }
 
-  function refresh() {
-    if (feedProcess.running) return
+  function curlCommand(url) {
+    return ["curl", "-fsSL", "--max-time", "12", "--max-filesize", "1048576", "--proto", "=http,https", "--proto-redir", "=http,https"].concat(Model.curlHeaders()).concat(["--", url])
+  }
+
+  function fetch(kind, url) {
+    if (!url || netProcess.running) return
+    pendingKind = kind
+    refreshing = true
+    errorText = ""
+    netProcess.command = curlCommand(url)
+    netProcess.running = true
+  }
+
+  function ensureData(force) {
     if (!apiBase) {
       errorText = "Set a Dhwani API address"
       return
     }
-    refreshing = true
-    errorText = ""
-    feedProcess.command = ["curl", "-fsSL", "--max-time", "8", "--max-filesize", "1048576", "--proto", "=http,https", "--proto-redir", "=http,https", "-H", "Accept: application/json", "--", Model.feedUrl(apiBase)]
-    feedProcess.running = true
+    var now = Date.now()
+    if (tab === 0 && (force || !trending.length || !Model.isFresh(trendingAt, now, staleAfterMs))) fetch("trending", Model.feedUrl(apiBase))
+    else if (tab === 2 && !openShow && (force || !shows.length || !Model.isFresh(showsAt, now, staleAfterMs))) fetch("shows", Model.podcastsUrl(apiBase, 0))
+    else if (tab === 2 && openShow && (force || !showEpisodes.length || !Model.isFresh(showAt, now, staleAfterMs))) fetch("show", Model.showUrl(apiBase, openShow.podcastId, 0))
   }
 
-  function applyFeed(raw) {
+  function refresh() {
+    if (tab === 1) {
+      errorText = ""
+      return
+    }
+    ensureData(true)
+  }
+
+  function applyNetwork(raw) {
     if (String(raw || "").length > 1048576) {
       errorText = "Dhwani returned too much data"
       return
     }
-    var result = Model.parseFeed(raw, episodeLimit)
-    if (!result.ok) {
-      errorText = result.error
-      return
+    var kind = pendingKind
+    if (kind === "trending") {
+      var feed = Model.parseTrending(raw, episodeLimit)
+      if (!feed.ok) { errorText = feed.error; return }
+      trending = feed.episodes
+      trendingAt = Date.now()
+    } else if (kind === "shows" || kind === "moreShows") {
+      var list = Model.parsePodcasts(raw)
+      if (!list.ok) { errorText = list.error; return }
+      shows = kind === "moreShows" ? shows.concat(list.shows) : list.shows
+      showsTotal = list.total
+      showsAt = Date.now()
+    } else if (kind === "show" || kind === "moreShow") {
+      var detail = Model.parseShow(raw)
+      if (!detail.ok) { errorText = detail.error; return }
+      if (detail.show) openShow = detail.show
+      showEpisodes = kind === "moreShow" ? showEpisodes.concat(detail.episodes) : detail.episodes
+      showTotal = detail.total
+      showAt = Date.now()
     }
-    episodes = result.episodes
-    var currentIndex = playbackIndex()
-    selectedIndex = currentIndex >= 0 ? currentIndex : Math.min(selectedIndex, Math.max(0, episodes.length - 1))
     errorText = ""
-    lastFetchMs = Date.now()
+    restoreIndex()
+    saveSoon()
   }
 
   function conciseError(raw) {
@@ -88,16 +142,50 @@ Panel {
     return text.length > 100 ? text.substring(0, 97) + "…" : text
   }
 
+  function saveCurrentIndex() {
+    if (tab === 0) trendingIndex = selectedIndex
+    else if (tab === 1) queueIndex = selectedIndex
+    else if (openShow) showIndex = selectedIndex
+    else showsIndex = selectedIndex
+  }
+
+  function restoreIndex() {
+    var rows = visibleRows
+    var index = tab === 0 ? trendingIndex : (tab === 1 ? queueIndex : (openShow ? showIndex : showsIndex))
+    selectedIndex = Math.max(0, Math.min(index, Math.max(0, rows.length - 1)))
+    moveCursor(0)
+  }
+
+  function switchTab(delta) {
+    saveCurrentIndex()
+    tab = (tab + delta + 3) % 3
+    restoreIndex()
+    ensureData(false)
+    saveSoon()
+  }
+
   function moveCursor(delta) {
-    if (!episodes.length) return
-    selectedIndex = Math.max(0, Math.min(episodes.length - 1, selectedIndex + delta))
+    var rows = visibleRows
+    if (!rows.length) return
+    selectedIndex = Math.max(0, Math.min(rows.length - 1, selectedIndex + delta))
+    saveCurrentIndex()
     var top = selectedIndex * rowHeight
     if (top < episodeList.contentY) episodeList.contentY = top
     else if (top + rowHeight > episodeList.contentY + episodeList.height)
       episodeList.contentY = top + rowHeight - episodeList.height
+    maybePage()
+  }
+
+  function maybePage() {
+    if (netProcess.running || tab !== 2) return
+    if (!openShow && shows.length && shows.length < showsTotal && selectedIndex > shows.length - 4)
+      fetch("moreShows", Model.podcastsUrl(apiBase, shows.length))
+    else if (openShow && showEpisodes.length && showEpisodes.length < showTotal && selectedIndex > showEpisodes.length - 4)
+      fetch("moreShow", Model.showUrl(apiBase, openShow.podcastId, showEpisodes.length))
   }
 
   function playerFor(item) {
+    if (!item || item.kind === "show") return null
     var label = Model.playbackTitle(item)
     for (var i = 0; i < mprisPlayers.length; i++) {
       var player = mprisPlayers[i]
@@ -107,15 +195,17 @@ Panel {
     return null
   }
 
-  function playbackIndex() {
-    for (var i = 0; i < episodes.length; i++) if (playerFor(episodes[i])) return i
-    return -1
+  function allEpisodes() {
+    return trending.concat(queue).concat(showEpisodes)
   }
 
   function findCurrentPlayback() {
-    var index = playbackIndex()
-    if (index < 0) return null
-    return { episode: episodes[index], player: playerFor(episodes[index]) }
+    var items = allEpisodes()
+    for (var i = 0; i < items.length; i++) {
+      var player = playerFor(items[i])
+      if (player) return { episode: items[i], player: player }
+    }
+    return null
   }
 
   function togglePlayer(player) {
@@ -125,6 +215,7 @@ Panel {
     else if (player.canTogglePlaying) player.togglePlaying()
     else return false
     errorText = ""
+    rememberPlayback()
     return true
   }
 
@@ -132,6 +223,7 @@ Panel {
     if (!canSeek) return false
     playbackPlayer.seek(seconds)
     errorText = ""
+    rememberPlayback()
     return true
   }
 
@@ -139,35 +231,136 @@ Panel {
     if (!canSeek || !playbackPlayer.positionSupported || playbackLength <= 0) return false
     playbackPlayer.position = Math.max(0, Math.min(1, progress)) * playbackLength
     errorText = ""
+    rememberPlayback()
     return true
   }
 
+  function rememberPlayback() {
+    if (!currentPlayback) return
+    queue = Model.rememberPosition(queue, currentPlayback.episode, playbackPosition, playbackLength)
+    saveSoon()
+  }
+
   function playEpisode(item) {
-    if (!item || !item.audioUrl || playerProcess.running) return
+    if (!item || item.kind === "show" || !item.audioUrl || playerProcess.running) return
+    queue = Model.enqueue(queue, item)
+    saveSoon()
     var player = playerFor(item)
     if (player) {
       togglePlayer(player)
       return
     }
     launchingEpisodeId = item.episodeId || item.audioUrl
+    pendingSeek = item.position > 5 ? item.position : 0
     errorText = ""
     playerProcess.command = ["python3", helperPath, item.audioUrl, Model.playbackTitle(item)]
     playerProcess.running = true
   }
 
-  function playSelected() {
-    if (episodes.length) playEpisode(episodes[selectedIndex])
+  function activateSelected() {
+    var item = visibleRows[selectedIndex]
+    if (!item) return
+    if (item.kind === "show") {
+      openShow = item
+      showEpisodes = []
+      showTotal = item.episodeCount || 0
+      selectedIndex = 0
+      showIndex = 0
+      ensureData(false)
+      saveSoon()
+      return
+    }
+    playEpisode(item)
+  }
+
+  function back() {
+    if (tab === 2 && openShow) {
+      saveCurrentIndex()
+      openShow = null
+      showEpisodes = []
+      restoreIndex()
+      saveSoon()
+      return
+    }
+    close()
+  }
+
+  function applyState(raw) {
+    var state = Model.parseState(raw)
+    queue = state.queue
+    tab = state.nav.tab
+    trendingIndex = state.nav.trendingIndex
+    queueIndex = state.nav.queueIndex
+    showsIndex = state.nav.showsIndex
+    showIndex = state.nav.showIndex
+    var cache = state.cache || {}
+    if (cache.trending && cache.trending.episodes) {
+      trending = cache.trending.episodes
+      trendingAt = Number(cache.trending.fetchedAt) || 0
+    }
+    if (cache.shows && cache.shows.items) {
+      shows = cache.shows.items
+      showsTotal = Number(cache.shows.total) || shows.length
+      showsAt = Number(cache.shows.fetchedAt) || 0
+    }
+    if (state.nav.openShowId && cache.showsById && cache.showsById[state.nav.openShowId]) {
+      var cachedShow = cache.showsById[state.nav.openShowId]
+      openShow = { kind: "show", podcastId: state.nav.openShowId, title: state.nav.openShowTitle || cachedShow.title, podcastTitle: state.nav.openShowTitle || cachedShow.title }
+      showEpisodes = cachedShow.episodes || []
+      showTotal = Number(cachedShow.total) || showEpisodes.length
+      showAt = Number(cachedShow.fetchedAt) || 0
+    }
+    stateReady = true
+    restoreIndex()
+  }
+
+  function dumpState() {
+    var showsById = {}
+    if (openShow) showsById[openShow.podcastId] = { fetchedAt: showAt, title: openShow.title, episodes: showEpisodes, total: showTotal }
+    return JSON.stringify({
+      schemaVersion: 1,
+      queue: queue,
+      nav: {
+        tab: tab,
+        trendingIndex: trendingIndex,
+        queueIndex: queueIndex,
+        showsIndex: showsIndex,
+        showIndex: showIndex,
+        openShowId: openShow ? openShow.podcastId : "",
+        openShowTitle: openShow ? openShow.title : ""
+      },
+      cache: {
+        trending: { fetchedAt: trendingAt, episodes: trending },
+        shows: { fetchedAt: showsAt, items: shows, total: showsTotal },
+        showsById: showsById
+      }
+    })
+  }
+
+  function saveState() {
+    if (!stateReady) return
+    stateFile.setText(dumpState())
+  }
+
+  function saveSoon() { saveTimer.restart() }
+
+  onCurrentPlaybackChanged: {
+    if (currentPlayback && pendingSeek > 0 && playbackLength > 0) {
+      seekTo(pendingSeek / playbackLength)
+      pendingSeek = 0
+    }
   }
 
   Process {
-    id: feedProcess
+    id: netProcess
     command: []
-    stdout: StdioCollector { id: feedStdout; waitForEnd: true }
-    stderr: StdioCollector { id: feedStderr; waitForEnd: true }
+    stdout: StdioCollector { id: netStdout; waitForEnd: true }
+    stderr: StdioCollector { id: netStderr; waitForEnd: true }
     onExited: function(exitCode) {
       root.refreshing = false
-      if (exitCode === 0) root.applyFeed(feedStdout.text)
-      else root.errorText = root.conciseError(feedStderr.text) || "Dhwani is out of reach"
+      if (exitCode === 0) root.applyNetwork(netStdout.text)
+      else root.errorText = root.conciseError(netStderr.text) || "Dhwani is out of reach"
+      root.pendingKind = ""
     }
   }
 
@@ -181,11 +374,49 @@ Panel {
     }
   }
 
+  Process {
+    id: ensureStateDir
+    command: ["mkdir", "-p", root.stateDir]
+    running: true
+    onExited: stateFile.reload()
+  }
+
+  FileView {
+    id: stateFile
+    path: root.stateDir + "/state.json"
+    atomicWrites: true
+    printErrors: false
+    onLoaded: {
+      if (root.stateReady) return
+      root.applyState(text())
+      if (root.opened) root.ensureData(false)
+    }
+    onLoadFailed: {
+      if (root.stateReady) return
+      root.applyState("")
+      if (root.opened) root.ensureData(false)
+    }
+  }
+
+  Timer {
+    id: saveTimer
+    interval: 250
+    repeat: false
+    onTriggered: root.saveState()
+  }
+
   Timer {
     interval: 1000
     repeat: true
     running: root.opened && root.playbackPlayer && root.playbackPlayer.isPlaying && root.playbackPlayer.positionSupported
     onTriggered: if (root.playbackPlayer) root.playbackPlayer.positionChanged()
+  }
+
+  Timer {
+    interval: 30000
+    repeat: true
+    running: root.playbackPlayer !== null
+    onTriggered: root.rememberPlayback()
   }
 
   KeyboardPanel {
@@ -203,11 +434,11 @@ Panel {
       id: keyCatcher
       anchors.fill: parent
       onMoveRequested: function(dx, dy) {
-        if (dx) root.seekBy(dx < 0 ? -15 : 30)
+        if (dx) root.switchTab(dx)
         else if (dy) root.moveCursor(dy)
       }
-      onActivateRequested: root.playSelected()
-      onCloseRequested: root.close()
+      onActivateRequested: root.activateSelected()
+      onCloseRequested: root.back()
       onTabRequested: function(direction) { root.switchPanel(direction) }
       onTextKey: function(text) {
         if (text === "r" || text === "R") root.refresh()
@@ -249,10 +480,11 @@ Panel {
 
           Text {
             width: parent.width
-            text: root.currentPlayback ? (root.currentPlayback.player.isPlaying ? "Playing now" : "Paused") : "Something worth hearing"
+            text: root.currentPlayback ? (root.currentPlayback.player.isPlaying ? "Playing now" : "Paused") : (root.openShow && root.tab === 2 ? root.openShow.title : "Something worth hearing")
             color: root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.bodySmall
+            elide: Text.ElideRight
           }
         }
 
@@ -264,14 +496,50 @@ Panel {
           tooltipText: "Refresh · r"
           foreground: root.foreground
           fontFamily: root.fontFamily
-          enabled: !root.refreshing
+          enabled: !root.refreshing && root.tab !== 1
           onClicked: root.refresh()
+        }
+      }
+
+      Row {
+        id: tabBar
+        anchors.top: header.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
+        height: Style.space(32)
+        spacing: Style.space(16)
+        leftPadding: Style.space(8)
+
+        Repeater {
+          model: root.tabs
+          Text {
+            required property int index
+            required property string modelData
+            text: modelData + (index === 1 && root.queue.length ? " " + root.queue.length : "")
+            color: root.tab === index ? root.foreground : root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.bodySmall
+            font.bold: root.tab === index
+            height: tabBar.height
+            verticalAlignment: Text.AlignVCenter
+            MouseArea {
+              anchors.fill: parent
+              cursorShape: Qt.PointingHandCursor
+              onClicked: {
+                root.saveCurrentIndex()
+                root.tab = index
+                root.restoreIndex()
+                root.ensureData(false)
+                root.saveSoon()
+              }
+            }
+          }
         }
       }
 
       Rectangle {
         id: separator
-        anchors.top: header.bottom
+        anchors.top: tabBar.bottom
         anchors.left: parent.left
         anchors.right: parent.right
         height: Style.spacing.hairline
@@ -289,7 +557,7 @@ Panel {
         Column {
           anchors.centerIn: parent
           spacing: Style.space(10)
-          visible: root.episodes.length === 0
+          visible: root.visibleRows.length === 0
 
           Text {
             anchors.horizontalCenter: parent.horizontalCenter
@@ -302,7 +570,7 @@ Panel {
           Text {
             anchors.horizontalCenter: parent.horizontalCenter
             width: Math.max(1, listArea.width - Style.space(48))
-            text: root.refreshing ? "Listening for Dhwani…" : (root.errorText || "The listening queue is quiet")
+            text: root.refreshing ? "Listening for Dhwani…" : (root.errorText || (root.tab === 1 ? "Play something and it will land here" : "The listening queue is quiet"))
             color: root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.body
@@ -316,7 +584,7 @@ Panel {
         Flickable {
           id: episodeList
           anchors.fill: parent
-          visible: root.episodes.length > 0
+          visible: root.visibleRows.length > 0
           clip: true
           contentWidth: width
           contentHeight: episodeColumn.implicitHeight
@@ -327,7 +595,7 @@ Panel {
             width: episodeList.width
 
             Repeater {
-              model: root.episodes
+              model: root.visibleRows
 
               CursorSurface {
                 id: episodeRow
@@ -354,7 +622,7 @@ Panel {
 
                   Text {
                     anchors.centerIn: parent
-                    text: "󰦔"
+                    text: modelData.kind === "show" ? "󰐌" : "󰦔"
                     color: root.dim
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.icon
@@ -363,6 +631,8 @@ Panel {
                   Image {
                     anchors.fill: parent
                     source: modelData.artworkUrl
+                    sourceSize.width: 96
+                    sourceSize.height: 96
                     asynchronous: true
                     cache: true
                     fillMode: Image.PreserveAspectCrop
@@ -390,7 +660,7 @@ Panel {
 
                   Text {
                     width: parent.width
-                    text: modelData.podcastTitle
+                    text: modelData.kind === "show" ? (modelData.episodeCount ? modelData.episodeCount + " episodes" : "Show") : modelData.podcastTitle
                     color: root.dim
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.bodySmall
@@ -409,7 +679,7 @@ Panel {
                   Text {
                     width: parent.width
                     horizontalAlignment: Text.AlignRight
-                    text: root.launchingEpisodeId === (modelData.episodeId || modelData.audioUrl) ? "󰑐" : (episodeRow.mediaPlayer && episodeRow.mediaPlayer.isPlaying ? "󰏤" : "󰐊")
+                    text: modelData.kind === "show" ? "󰅂" : (root.launchingEpisodeId === (modelData.episodeId || modelData.audioUrl) ? "󰑐" : (episodeRow.mediaPlayer && episodeRow.mediaPlayer.isPlaying ? "󰏤" : "󰐊"))
                     color: root.selectedIndex === index ? root.foreground : root.dim
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.icon
@@ -418,7 +688,7 @@ Panel {
                   Text {
                     width: parent.width
                     horizontalAlignment: Text.AlignRight
-                    text: Model.formatDuration(modelData.duration)
+                    text: modelData.kind === "show" ? "" : (modelData.position ? Model.formatPosition(modelData.position) : Model.formatDuration(modelData.duration))
                     color: root.dim
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.caption
@@ -430,7 +700,10 @@ Panel {
                   hoverEnabled: true
                   cursorShape: Qt.PointingHandCursor
                   onEntered: root.selectedIndex = index
-                  onClicked: root.playEpisode(modelData)
+                  onClicked: {
+                    root.selectedIndex = index
+                    root.activateSelected()
+                  }
                 }
               }
             }
@@ -518,77 +791,41 @@ Panel {
             anchors.verticalCenter: parent.verticalCenter
             spacing: Style.space(6)
 
-            Column {
-              spacing: Style.space(1)
-
-              PanelActionButton {
-                iconText: "−15"
-                tooltipText: "Back 15 seconds · ← or h"
-                foreground: root.foreground
-                fontFamily: root.fontFamily
-                fontSize: Style.font.caption
-                size: Style.space(30)
-                radius: size / 2
-                enabled: root.canSeek
-                onClicked: root.seekBy(-15)
-              }
-
-              Text {
-                anchors.horizontalCenter: parent.horizontalCenter
-                text: "h"
-                color: root.dim
-                font.family: root.fontFamily
-                font.pixelSize: Math.max(8, Style.font.caption - 2)
-              }
+            PanelActionButton {
+              iconText: "−15"
+              tooltipText: "Back 15 seconds"
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+              fontSize: Style.font.caption
+              size: Style.space(30)
+              radius: size / 2
+              enabled: root.canSeek
+              onClicked: root.seekBy(-15)
             }
 
-            Column {
-              spacing: Style.space(1)
-
-              PanelActionButton {
-                iconText: root.playbackPlayer && root.playbackPlayer.isPlaying ? "󰏤" : "󰐊"
-                tooltipText: root.playbackPlayer && root.playbackPlayer.isPlaying ? "Pause · enter or space" : "Play · enter or space"
-                foreground: root.playbackPlayer && root.playbackPlayer.isPlaying ? Color.accent : root.foreground
-                hoverColor: Color.accent
-                fontFamily: root.fontFamily
-                size: Style.space(34)
-                radius: size / 2
-                bordered: true
-                enabled: root.playbackPlayer !== null
-                onClicked: root.togglePlayer(root.playbackPlayer)
-              }
-
-              Text {
-                anchors.horizontalCenter: parent.horizontalCenter
-                text: "space"
-                color: root.dim
-                font.family: root.fontFamily
-                font.pixelSize: Math.max(8, Style.font.caption - 2)
-              }
+            PanelActionButton {
+              iconText: root.playbackPlayer && root.playbackPlayer.isPlaying ? "󰏤" : "󰐊"
+              tooltipText: root.playbackPlayer && root.playbackPlayer.isPlaying ? "Pause · enter or space" : "Play · enter or space"
+              foreground: root.playbackPlayer && root.playbackPlayer.isPlaying ? Color.accent : root.foreground
+              hoverColor: Color.accent
+              fontFamily: root.fontFamily
+              size: Style.space(34)
+              radius: size / 2
+              bordered: true
+              enabled: root.playbackPlayer !== null
+              onClicked: root.togglePlayer(root.playbackPlayer)
             }
 
-            Column {
-              spacing: Style.space(1)
-
-              PanelActionButton {
-                iconText: "+30"
-                tooltipText: "Forward 30 seconds · → or l"
-                foreground: root.foreground
-                fontFamily: root.fontFamily
-                fontSize: Style.font.caption
-                size: Style.space(30)
-                radius: size / 2
-                enabled: root.canSeek
-                onClicked: root.seekBy(30)
-              }
-
-              Text {
-                anchors.horizontalCenter: parent.horizontalCenter
-                text: "l"
-                color: root.dim
-                font.family: root.fontFamily
-                font.pixelSize: Math.max(8, Style.font.caption - 2)
-              }
+            PanelActionButton {
+              iconText: "+30"
+              tooltipText: "Forward 30 seconds"
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+              fontSize: Style.font.caption
+              size: Style.space(30)
+              radius: size / 2
+              enabled: root.canSeek
+              onClicked: root.seekBy(30)
             }
           }
 
@@ -641,7 +878,7 @@ Panel {
           anchors.leftMargin: Style.space(14)
           anchors.verticalCenter: parent.verticalCenter
           width: parent.width - Style.space(14)
-          text: root.errorText && root.episodes.length ? root.errorText : (root.launchingEpisodeId ? "Opening episode…" : root.episodes.length + " ready  ·  ↑↓ choose  ·  enter play  ·  r refresh")
+          text: root.errorText && root.visibleRows.length ? root.errorText : (root.launchingEpisodeId ? "Opening episode…" : (root.openShow && root.tab === 2 ? "esc back  ·  ↑↓ choose  ·  enter play" : "←→ tabs  ·  ↑↓ choose  ·  enter  ·  r refresh"))
           color: root.dim
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption

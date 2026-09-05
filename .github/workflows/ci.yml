@@ -26,7 +26,7 @@ jobs:
           /usr/lib/qt6/bin/qmllint -I /tmp/qml-imports BarWidget.qml Panel.qml
       - name: Test model
         run: node tests/model.test.js
-      - name: Test playback boundary
-        run: python tests/test_play.py
+      - name: Test playback and state
+        run: python tests/test_play.py && python tests/test_state.py && python tests/test_e2e.py
       - name: Lint Python
-        run: ruff check play.py tests/test_play.py && ruff format --check play.py tests/test_play.py
+        run: ruff check play.py state.py tests && ruff format --check play.py state.py tests

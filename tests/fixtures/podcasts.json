@@ -1,0 +1,19 @@
+{
+  "limit": 20,
+  "offset": 0,
+  "total": 2,
+  "podcasts": [
+    {
+      "podcast_id": "9QqWbjH5mqlrsiaHMba1",
+      "title": "Y Combinator Startup Podcast",
+      "artwork_url": "https://cdn.example.test/yc.jpg",
+      "episode_count": 79
+    },
+    {
+      "podcast_id": "H723798Y3sXSBvR4asU3",
+      "title": "Decoder with Nilay Patel",
+      "artwork_url": "https://cdn.example.test/decoder.jpg",
+      "episode_count": 12
+    }
+  ]
+}

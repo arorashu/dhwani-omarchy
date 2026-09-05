@@ -1,0 +1,35 @@
+{
+  "generated_at": "2026-09-05T15:26:17.720178Z",
+  "daily_listen": null,
+  "picks": [],
+  "trending": [
+    {
+      "episode_id": "AOW3VXulOz",
+      "podcast_id": "epgv9myI3MUBIj7597H2",
+      "title": "#501 – DHH: Future of Programming",
+      "podcast_title": "Lex Fridman Podcast",
+      "duration": 19317,
+      "artwork_url": "https://cdn.example.test/lex.jpg",
+      "media_options": [
+        {
+          "is_primary": true,
+          "path": "https://cdn.example.test/lex.mp3"
+        }
+      ]
+    },
+    {
+      "episode_id": "ydMOiRDhLM",
+      "podcast_id": "H723798Y3sXSBvR4asU3",
+      "title": "How Sonos rebooted itself",
+      "podcast_title": "Decoder with Nilay Patel",
+      "duration": 4424,
+      "artwork_url": "https://cdn.example.test/sonos.jpg",
+      "media_options": [
+        {
+          "is_primary": true,
+          "path": "https://cdn.example.test/sonos.mp3"
+        }
+      ]
+    }
+  ]
+}

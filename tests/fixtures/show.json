@@ -1,0 +1,38 @@
+{
+  "limit": 20,
+  "offset": 0,
+  "total_episodes": 2,
+  "podcast": {
+    "podcast_id": "9QqWbjH5mqlrsiaHMba1",
+    "title": "Y Combinator Startup Podcast",
+    "artwork_url": "https://cdn.example.test/yc.jpg",
+    "episode_count": 79
+  },
+  "episodes": [
+    {
+      "video_id": "IuiARqppaF",
+      "title": "Paul Graham On Startups",
+      "duration": 1284,
+      "podcast_id": "9QqWbjH5mqlrsiaHMba1",
+      "artwork_url": "https://cdn.example.test/pg.jpg",
+      "media_options": [
+        {
+          "is_primary": true,
+          "path": "https://cdn.example.test/pg.mp3"
+        }
+      ]
+    },
+    {
+      "video_id": "abcdefghij",
+      "title": "A second YC episode",
+      "duration": 900,
+      "podcast_id": "9QqWbjH5mqlrsiaHMba1",
+      "media_options": [
+        {
+          "is_primary": true,
+          "path": "https://cdn.example.test/yc2.mp3"
+        }
+      ]
+    }
+  ]
+}

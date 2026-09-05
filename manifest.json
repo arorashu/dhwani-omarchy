@@ -17,25 +17,25 @@
     "allowMultiple": false,
     "defaultSection": "center",
     "defaults": {
-      "apiBase": "http://127.0.0.1:8791",
-      "episodeLimit": 7,
-      "staleAfterSec": 300
+      "apiBase": "https://api-v1.dhwani.io",
+      "episodeLimit": 10,
+      "staleAfterSec": 600
     },
     "schema": [
       {
         "key": "apiBase",
         "type": "string",
         "label": "Dhwani API",
-        "defaultValue": "http://127.0.0.1:8791"
+        "defaultValue": "https://api-v1.dhwani.io"
       },
       {
         "key": "episodeLimit",
         "type": "integer",
         "label": "Episodes",
         "min": 3,
-        "max": 10,
+        "max": 20,
         "step": 1,
-        "defaultValue": 7
+        "defaultValue": 10
       },
       {
         "key": "staleAfterSec",
@@ -44,7 +44,7 @@
         "min": 30,
         "max": 3600,
         "step": 30,
-        "defaultValue": 300
+        "defaultValue": 600
       }
     ]
   }
