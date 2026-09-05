@@ -27,6 +27,6 @@ jobs:
       - name: Test model
         run: node tests/model.test.js
       - name: Test playback and state
-        run: python tests/test_play.py && python tests/test_state.py && python tests/test_e2e.py
+        run: python tests/test_play.py && python tests/test_state.py && python tests/test_e2e.py && python tests/test_qml_contract.py
       - name: Lint Python
         run: ruff check play.py state.py tests && ruff format --check play.py state.py tests
