@@ -106,6 +106,12 @@ assert.strictEqual(stacked.length, 1);
 assert.strictEqual(stacked[0].title, 'Updated');
 const remembered = Model.rememberPosition(stacked, stacked[0], 42, 1284);
 assert.strictEqual(remembered[0].position, 42);
+const merged = Model.mergeQueue(
+  [{ episodeId: 'old1', title: 'Old', audioUrl: 'https://cdn.example.test/old.mp3', podcastTitle: 'P' }],
+  stacked
+);
+assert.strictEqual(merged[0].episodeId, stacked[0].episodeId);
+assert.strictEqual(merged[1].episodeId, 'old1');
 
 const restored = Model.parseState(JSON.stringify({
   schemaVersion: 1,

@@ -251,6 +251,13 @@ function enqueue(queue, item) {
   return next.slice(0, 100)
 }
 
+function mergeQueue(disk, memory) {
+  var merged = Array.isArray(disk) ? disk.slice() : []
+  var live = Array.isArray(memory) ? memory : []
+  for (var i = live.length - 1; i >= 0; i--) merged = enqueue(merged, live[i])
+  return merged
+}
+
 function rememberPosition(queue, item, position, duration) {
   var key = episodeKey(item)
   if (!key) return Array.isArray(queue) ? queue.slice() : []
@@ -331,7 +338,9 @@ if (typeof module !== "undefined") {
     formatDuration: formatDuration,
     formatPosition: formatPosition,
     playbackProgress: playbackProgress,
+    episodeKey: episodeKey,
     enqueue: enqueue,
+    mergeQueue: mergeQueue,
     rememberPosition: rememberPosition,
     isFresh: isFresh,
     parseState: parseState,

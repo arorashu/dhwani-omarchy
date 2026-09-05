@@ -35,6 +35,9 @@ Panel {
   property real pendingSeek: 0
   property bool refreshing: false
   property bool stateReady: false
+  property bool hydrating: false
+  property bool enterPressed: false
+  property string queuedId: ""
 
   readonly property var barIdentity: hostWidget || root
   readonly property var mprisPlayers: Mpris.players ? Mpris.players.values : []
@@ -237,14 +240,26 @@ Panel {
 
   function rememberPlayback() {
     if (!currentPlayback) return
+    capturePlaying()
     queue = Model.rememberPosition(queue, currentPlayback.episode, playbackPosition, playbackLength)
     saveSoon()
+  }
+
+  function capturePlaying() {
+    if (!currentPlayback) return
+    var item = currentPlayback.episode
+    var key = Model.episodeKey(item)
+    if (!key || key === queuedId) return
+    queue = Model.enqueue(queue, item)
+    queuedId = key
+    saveState()
   }
 
   function playEpisode(item) {
     if (!item || item.kind === "show" || !item.audioUrl || playerProcess.running) return
     queue = Model.enqueue(queue, item)
-    saveSoon()
+    queuedId = Model.episodeKey(item)
+    saveState()
     var player = playerFor(item)
     if (player) {
       togglePlayer(player)
@@ -285,9 +300,11 @@ Panel {
     close()
   }
 
-  function applyState(raw) {
+  function applyState(raw, diskWins) {
     var state = Model.parseState(raw)
-    queue = state.queue
+    queue = diskWins ? state.queue : Model.mergeQueue(state.queue, queue)
+    queuedId = queue.length ? Model.episodeKey(queue[0]) : ""
+    if (stateReady) return
     tab = state.nav.tab
     trendingIndex = state.nav.trendingIndex
     queueIndex = state.nav.queueIndex
@@ -310,7 +327,6 @@ Panel {
       showTotal = Number(cachedShow.total) || showEpisodes.length
       showAt = Number(cachedShow.fetchedAt) || 0
     }
-    stateReady = true
     restoreIndex()
   }
 
@@ -338,13 +354,16 @@ Panel {
   }
 
   function saveState() {
-    if (!stateReady) return
+    if (hydrating) return
+    hydrating = true
     stateFile.setText(dumpState())
+    Qt.callLater(function() { hydrating = false })
   }
 
   function saveSoon() { saveTimer.restart() }
 
   onCurrentPlaybackChanged: {
+    capturePlaying()
     if (currentPlayback && pendingSeek > 0 && playbackLength > 0) {
       seekTo(pendingSeek / playbackLength)
       pendingSeek = 0
@@ -385,15 +404,23 @@ Panel {
     id: stateFile
     path: root.stateDir + "/state.json"
     atomicWrites: true
+    watchChanges: true
     printErrors: false
+    onFileChanged: if (!root.hydrating) reload()
     onLoaded: {
-      if (root.stateReady) return
-      root.applyState(text())
-      if (root.opened) root.ensureData(false)
+      if (root.hydrating) {
+        root.stateReady = true
+        return
+      }
+      var already = root.stateReady
+      root.applyState(text(), already)
+      root.stateReady = true
+      if (root.opened && !already) root.ensureData(false)
     }
     onLoadFailed: {
-      if (root.stateReady) return
-      root.applyState("")
+      if (root.stateReady || root.hydrating) return
+      root.applyState("", false)
+      root.stateReady = true
       if (root.opened) root.ensureData(false)
     }
   }
@@ -437,7 +464,17 @@ Panel {
         if (dx) root.switchTab(dx)
         else if (dy) root.moveCursor(dy)
       }
-      onActivateRequested: root.activateSelected()
+      onReturnRequested: {
+        root.enterPressed = true
+        root.activateSelected()
+      }
+      onActivateRequested: {
+        if (root.enterPressed) {
+          root.enterPressed = false
+          return
+        }
+        if (root.playbackPlayer) root.togglePlayer(root.playbackPlayer)
+      }
       onCloseRequested: root.back()
       onTabRequested: function(direction) { root.switchPanel(direction) }
       onTextKey: function(text) {
@@ -878,7 +915,7 @@ Panel {
           anchors.leftMargin: Style.space(14)
           anchors.verticalCenter: parent.verticalCenter
           width: parent.width - Style.space(14)
-          text: root.errorText && root.visibleRows.length ? root.errorText : (root.launchingEpisodeId ? "Opening episode…" : (root.openShow && root.tab === 2 ? "esc back  ·  ↑↓ choose  ·  enter play" : "←→ tabs  ·  ↑↓ choose  ·  enter  ·  r refresh"))
+          text: root.errorText && root.visibleRows.length ? root.errorText : (root.launchingEpisodeId ? "Opening episode…" : (root.openShow && root.tab === 2 ? "esc back  ·  ↑↓ choose  ·  enter play  ·  space pause" : "←→ tabs  ·  ↑↓ choose  ·  enter play  ·  space pause"))
           color: root.dim
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
