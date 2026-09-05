@@ -23,7 +23,7 @@ jobs:
         run: |
           mkdir -p /tmp/qml-imports
           ln -s /tmp/omarchy/shell /tmp/qml-imports/qs
-          /usr/lib/qt6/bin/qmllint -I /tmp/qml-imports BarWidget.qml Panel.qml
+          /usr/lib/qt6/bin/qmllint -I /tmp/qml-imports BarWidget.qml Panel.qml Service.qml
       - name: Test model
         run: node tests/model.test.js
       - name: Test playback and state

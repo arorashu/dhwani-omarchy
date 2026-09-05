@@ -1,7 +1,4 @@
 import QtQuick
-import Quickshell
-import Quickshell.Io
-import Quickshell.Services.Mpris
 import qs.Commons
 import qs.Ui
 import "Model.js" as Model
@@ -13,49 +10,39 @@ Panel {
 
   property var anchorItem: null
   property var hostWidget: null
+  property var service: null
   property int tab: 0
-  property var trending: []
-  property var queue: []
-  property var shows: []
-  property var showEpisodes: []
   property var openShow: null
   property int selectedIndex: 0
   property int trendingIndex: 0
   property int queueIndex: 0
   property int showsIndex: 0
   property int showIndex: 0
-  property int showsTotal: 0
-  property int showTotal: 0
-  property double trendingAt: 0
-  property double showsAt: 0
-  property double showAt: 0
-  property string errorText: ""
-  property string launchingEpisodeId: ""
-  property string pendingKind: ""
-  property real pendingSeek: 0
-  property bool refreshing: false
-  property bool stateReady: false
-  property bool hydrating: false
   property bool enterPressed: false
-  property string queuedId: ""
 
   readonly property var barIdentity: hostWidget || root
-  readonly property var mprisPlayers: Mpris.players ? Mpris.players.values : []
+  readonly property var listen: service || (bar && bar.shell && bar.shell.serviceFor ? bar.shell.serviceFor("io.dhwani.listen") : null)
+  readonly property var queue: listen ? listen.queue : []
+  readonly property var trending: listen ? listen.trending : []
+  readonly property var shows: listen ? listen.shows : []
+  readonly property var showRecord: listen && openShow ? listen.showRecord(openShow.podcastId) : { episodes: [], total: 0 }
+  readonly property var showEpisodes: showRecord.episodes || []
   readonly property var visibleRows: tab === 1 ? queue : (tab === 2 ? (openShow ? showEpisodes : shows) : trending)
-  readonly property var currentPlayback: findCurrentPlayback()
+  readonly property var currentPlayback: listen ? listen.currentPlayback : null
+  readonly property var playbackPlayer: listen ? listen.playbackPlayer : null
+  readonly property real playbackPosition: listen ? listen.playbackPosition : 0
+  readonly property real playbackLength: listen ? listen.playbackLength : 0
+  readonly property bool canSeek: listen ? listen.canSeek : false
+  readonly property bool refreshing: listen ? listen.refreshing : false
+  readonly property string errorText: listen ? listen.errorText : ""
+  readonly property string launchingEpisodeId: listen ? listen.launchingEpisodeId : ""
   readonly property color foreground: bar ? bar.foreground : Color.foreground
   readonly property color dim: Color.muted
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
   readonly property string apiBase: Model.normalizeBaseUrl(setting("apiBase", "https://api-v1.dhwani.io"))
   readonly property int episodeLimit: Math.max(3, Math.min(20, parseInt(setting("episodeLimit", 10), 10) || 10))
   readonly property int staleAfterMs: Math.max(30000, (parseInt(setting("staleAfterSec", 600), 10) || 600) * 1000)
-  readonly property string helperPath: decodeURIComponent(String(Qt.resolvedUrl("play.py")).replace(/^file:\/\//, ""))
-  readonly property string stateDir: (Quickshell.env("XDG_STATE_HOME") || (Quickshell.env("HOME") + "/.local/state")) + "/dhwani-omarchy"
   readonly property int rowHeight: Style.space(66)
-  readonly property var playbackPlayer: currentPlayback ? currentPlayback.player : null
-  readonly property real playbackPosition: playbackPlayer && playbackPlayer.positionSupported ? Math.max(0, Number(playbackPlayer.position) || 0) : 0
-  readonly property real playbackLength: playbackPlayer && playbackPlayer.lengthSupported ? Math.max(0, Number(playbackPlayer.length) || 0) : (currentPlayback ? currentPlayback.episode.duration : 0)
-  readonly property bool canSeek: playbackPlayer !== null && playbackPlayer.canSeek === true
   readonly property var tabs: ["Trending", "Queue", "All Shows"]
 
   function open() {
@@ -68,8 +55,7 @@ Panel {
   }
 
   function close() {
-    rememberPlayback()
-    saveState()
+    if (listen) listen.rememberPlayback()
     controller.hide()
   }
   function toggle() { opened ? close() : open() }
@@ -78,71 +64,17 @@ Panel {
     return false
   }
 
-  function curlCommand(url) {
-    return ["curl", "-fsSL", "--max-time", "12", "--max-filesize", "1048576", "--proto", "=http,https", "--proto-redir", "=http,https"].concat(Model.curlHeaders()).concat(["--", url])
-  }
-
-  function fetch(kind, url) {
-    if (!url || netProcess.running) return
-    pendingKind = kind
-    refreshing = true
-    errorText = ""
-    netProcess.command = curlCommand(url)
-    netProcess.running = true
-  }
-
   function ensureData(force) {
-    if (!apiBase) {
-      errorText = "Set a Dhwani API address"
-      return
-    }
-    var now = Date.now()
-    if (tab === 0 && (force || !trending.length || !Model.isFresh(trendingAt, now, staleAfterMs))) fetch("trending", Model.feedUrl(apiBase))
-    else if (tab === 2 && !openShow && (force || !shows.length || !Model.isFresh(showsAt, now, staleAfterMs))) fetch("shows", Model.podcastsUrl(apiBase, 0))
-    else if (tab === 2 && openShow && (force || !showEpisodes.length || !Model.isFresh(showAt, now, staleAfterMs))) fetch("show", Model.showUrl(apiBase, openShow.podcastId, 0))
+    if (!listen) return
+    listen.configure(apiBase, episodeLimit, staleAfterMs)
+    if (tab === 0) listen.ensureTrending(force)
+    else if (tab === 2 && !openShow) listen.ensureShows(force)
+    else if (tab === 2 && openShow) listen.ensureShow(openShow.podcastId, force)
   }
 
   function refresh() {
-    if (tab === 1) {
-      errorText = ""
-      return
-    }
+    if (tab === 1) return
     ensureData(true)
-  }
-
-  function applyNetwork(raw) {
-    if (String(raw || "").length > 1048576) {
-      errorText = "Dhwani returned too much data"
-      return
-    }
-    var kind = pendingKind
-    if (kind === "trending") {
-      var feed = Model.parseTrending(raw, episodeLimit)
-      if (!feed.ok) { errorText = feed.error; return }
-      trending = feed.episodes
-      trendingAt = Date.now()
-    } else if (kind === "shows" || kind === "moreShows") {
-      var list = Model.parsePodcasts(raw)
-      if (!list.ok) { errorText = list.error; return }
-      shows = kind === "moreShows" ? shows.concat(list.shows) : list.shows
-      showsTotal = list.total
-      showsAt = Date.now()
-    } else if (kind === "show" || kind === "moreShow") {
-      var detail = Model.parseShow(raw)
-      if (!detail.ok) { errorText = detail.error; return }
-      if (detail.show) openShow = detail.show
-      showEpisodes = kind === "moreShow" ? showEpisodes.concat(detail.episodes) : detail.episodes
-      showTotal = detail.total
-      showAt = Date.now()
-    }
-    errorText = ""
-    restoreIndex()
-    saveSoon()
-  }
-
-  function conciseError(raw) {
-    var text = String(raw || "").replace(/\s+/g, " ").trim()
-    return text.length > 100 ? text.substring(0, 97) + "…" : text
   }
 
   function saveCurrentIndex() {
@@ -164,7 +96,6 @@ Panel {
     tab = (tab + delta + 3) % 3
     restoreIndex()
     ensureData(false)
-    saveSoon()
   }
 
   function moveCursor(delta) {
@@ -180,96 +111,9 @@ Panel {
   }
 
   function maybePage() {
-    if (netProcess.running || tab !== 2) return
-    if (!openShow && shows.length && shows.length < showsTotal && selectedIndex > shows.length - 4)
-      fetch("moreShows", Model.podcastsUrl(apiBase, shows.length))
-    else if (openShow && showEpisodes.length && showEpisodes.length < showTotal && selectedIndex > showEpisodes.length - 4)
-      fetch("moreShow", Model.showUrl(apiBase, openShow.podcastId, showEpisodes.length))
-  }
-
-  function playerFor(item) {
-    if (!item || item.kind === "show") return null
-    var label = Model.playbackTitle(item)
-    for (var i = 0; i < mprisPlayers.length; i++) {
-      var player = mprisPlayers[i]
-      var app = String(player.identity || player.desktopEntry || "").toLowerCase()
-      if (app === "mpv" && String(player.trackTitle || "") === label) return player
-    }
-    return null
-  }
-
-  function allEpisodes() {
-    return trending.concat(queue).concat(showEpisodes)
-  }
-
-  function findCurrentPlayback() {
-    var items = allEpisodes()
-    for (var i = 0; i < items.length; i++) {
-      var player = playerFor(items[i])
-      if (player) return { episode: items[i], player: player }
-    }
-    return null
-  }
-
-  function togglePlayer(player) {
-    if (!player) return false
-    if (player.isPlaying && player.canPause) player.pause()
-    else if (!player.isPlaying && player.canPlay) player.play()
-    else if (player.canTogglePlaying) player.togglePlaying()
-    else return false
-    errorText = ""
-    rememberPlayback()
-    return true
-  }
-
-  function seekBy(seconds) {
-    if (!canSeek) return false
-    playbackPlayer.seek(seconds)
-    errorText = ""
-    rememberPlayback()
-    return true
-  }
-
-  function seekTo(progress) {
-    if (!canSeek || !playbackPlayer.positionSupported || playbackLength <= 0) return false
-    playbackPlayer.position = Math.max(0, Math.min(1, progress)) * playbackLength
-    errorText = ""
-    rememberPlayback()
-    return true
-  }
-
-  function rememberPlayback() {
-    if (!currentPlayback) return
-    capturePlaying()
-    queue = Model.rememberPosition(queue, currentPlayback.episode, playbackPosition, playbackLength)
-    saveSoon()
-  }
-
-  function capturePlaying() {
-    if (!currentPlayback) return
-    var item = currentPlayback.episode
-    var key = Model.episodeKey(item)
-    if (!key || key === queuedId) return
-    queue = Model.enqueue(queue, item)
-    queuedId = key
-    saveState()
-  }
-
-  function playEpisode(item) {
-    if (!item || item.kind === "show" || !item.audioUrl || playerProcess.running) return
-    queue = Model.enqueue(queue, item)
-    queuedId = Model.episodeKey(item)
-    saveState()
-    var player = playerFor(item)
-    if (player) {
-      togglePlayer(player)
-      return
-    }
-    launchingEpisodeId = item.episodeId || item.audioUrl
-    pendingSeek = item.position > 5 ? item.position : 0
-    errorText = ""
-    playerProcess.command = ["python3", helperPath, item.audioUrl, Model.playbackTitle(item)]
-    playerProcess.running = true
+    if (!listen || tab !== 2) return
+    if (!openShow && selectedIndex > shows.length - 4) listen.pageShows()
+    else if (openShow && selectedIndex > showEpisodes.length - 4) listen.pageShow(openShow.podcastId)
   }
 
   function activateSelected() {
@@ -277,173 +121,22 @@ Panel {
     if (!item) return
     if (item.kind === "show") {
       openShow = item
-      showEpisodes = []
-      showTotal = item.episodeCount || 0
       selectedIndex = 0
       showIndex = 0
       ensureData(false)
-      saveSoon()
       return
     }
-    playEpisode(item)
+    if (listen) listen.playEpisode(item)
   }
 
   function back() {
     if (tab === 2 && openShow) {
       saveCurrentIndex()
       openShow = null
-      showEpisodes = []
       restoreIndex()
-      saveSoon()
       return
     }
     close()
-  }
-
-  function applyState(raw, diskWins) {
-    var state = Model.parseState(raw)
-    queue = diskWins ? state.queue : Model.mergeQueue(state.queue, queue)
-    queuedId = queue.length ? Model.episodeKey(queue[0]) : ""
-    if (stateReady) return
-    tab = state.nav.tab
-    trendingIndex = state.nav.trendingIndex
-    queueIndex = state.nav.queueIndex
-    showsIndex = state.nav.showsIndex
-    showIndex = state.nav.showIndex
-    var cache = state.cache || {}
-    if (cache.trending && cache.trending.episodes) {
-      trending = cache.trending.episodes
-      trendingAt = Number(cache.trending.fetchedAt) || 0
-    }
-    if (cache.shows && cache.shows.items) {
-      shows = cache.shows.items
-      showsTotal = Number(cache.shows.total) || shows.length
-      showsAt = Number(cache.shows.fetchedAt) || 0
-    }
-    if (state.nav.openShowId && cache.showsById && cache.showsById[state.nav.openShowId]) {
-      var cachedShow = cache.showsById[state.nav.openShowId]
-      openShow = { kind: "show", podcastId: state.nav.openShowId, title: state.nav.openShowTitle || cachedShow.title, podcastTitle: state.nav.openShowTitle || cachedShow.title }
-      showEpisodes = cachedShow.episodes || []
-      showTotal = Number(cachedShow.total) || showEpisodes.length
-      showAt = Number(cachedShow.fetchedAt) || 0
-    }
-    restoreIndex()
-  }
-
-  function dumpState() {
-    var showsById = {}
-    if (openShow) showsById[openShow.podcastId] = { fetchedAt: showAt, title: openShow.title, episodes: showEpisodes, total: showTotal }
-    return JSON.stringify({
-      schemaVersion: 1,
-      queue: queue,
-      nav: {
-        tab: tab,
-        trendingIndex: trendingIndex,
-        queueIndex: queueIndex,
-        showsIndex: showsIndex,
-        showIndex: showIndex,
-        openShowId: openShow ? openShow.podcastId : "",
-        openShowTitle: openShow ? openShow.title : ""
-      },
-      cache: {
-        trending: { fetchedAt: trendingAt, episodes: trending },
-        shows: { fetchedAt: showsAt, items: shows, total: showsTotal },
-        showsById: showsById
-      }
-    })
-  }
-
-  function saveState() {
-    if (hydrating) return
-    hydrating = true
-    stateFile.setText(dumpState())
-    Qt.callLater(function() { hydrating = false })
-  }
-
-  function saveSoon() { saveTimer.restart() }
-
-  onCurrentPlaybackChanged: {
-    capturePlaying()
-    if (currentPlayback && pendingSeek > 0 && playbackLength > 0) {
-      seekTo(pendingSeek / playbackLength)
-      pendingSeek = 0
-    }
-  }
-
-  Process {
-    id: netProcess
-    command: []
-    stdout: StdioCollector { id: netStdout; waitForEnd: true }
-    stderr: StdioCollector { id: netStderr; waitForEnd: true }
-    onExited: function(exitCode) {
-      root.refreshing = false
-      if (exitCode === 0) root.applyNetwork(netStdout.text)
-      else root.errorText = root.conciseError(netStderr.text) || "Dhwani is out of reach"
-      root.pendingKind = ""
-    }
-  }
-
-  Process {
-    id: playerProcess
-    command: []
-    stderr: StdioCollector { id: playerStderr; waitForEnd: true }
-    onExited: function(exitCode) {
-      root.launchingEpisodeId = ""
-      if (exitCode !== 0) root.errorText = root.conciseError(playerStderr.text) || "The episode could not start"
-    }
-  }
-
-  Process {
-    id: ensureStateDir
-    command: ["mkdir", "-p", root.stateDir]
-    running: true
-    onExited: stateFile.reload()
-  }
-
-  FileView {
-    id: stateFile
-    path: root.stateDir + "/state.json"
-    atomicWrites: true
-    watchChanges: true
-    printErrors: false
-    onFileChanged: if (!root.hydrating) reload()
-    onLoaded: {
-      if (root.hydrating) {
-        root.stateReady = true
-        return
-      }
-      var already = root.stateReady
-      root.applyState(text(), already)
-      root.stateReady = true
-      if (root.opened && !already) root.ensureData(false)
-    }
-    onLoadFailed: {
-      if (root.stateReady || root.hydrating) return
-      root.applyState("", false)
-      root.stateReady = true
-      if (root.opened) root.ensureData(false)
-    }
-  }
-
-  Timer {
-    id: saveTimer
-    interval: 250
-    repeat: false
-    onTriggered: root.saveState()
-  }
-
-  Timer {
-    interval: 1000
-    repeat: true
-    running: root.opened && root.playbackPlayer && root.playbackPlayer.isPlaying && root.playbackPlayer.positionSupported
-    onTriggered: if (root.playbackPlayer) root.playbackPlayer.positionChanged()
-  }
-
-  Timer {
-    interval: 30000
-    repeat: true
-    running: root.playbackPlayer !== null
-    onTriggered: root.rememberPlayback()
   }
 
   KeyboardPanel {
@@ -461,7 +154,8 @@ Panel {
       id: keyCatcher
       anchors.fill: parent
       onMoveRequested: function(dx, dy) {
-        if (dx) root.switchTab(dx)
+        if (dx < 0 && root.tab === 2 && root.openShow) root.back()
+        else if (dx) root.switchTab(dx)
         else if (dy) root.moveCursor(dy)
       }
       onReturnRequested: {
@@ -473,7 +167,7 @@ Panel {
           root.enterPressed = false
           return
         }
-        if (root.playbackPlayer) root.togglePlayer(root.playbackPlayer)
+        if (root.listen) root.listen.togglePlaying()
       }
       onCloseRequested: root.back()
       onTabRequested: function(direction) { root.switchPanel(direction) }
@@ -567,7 +261,6 @@ Panel {
                 root.tab = index
                 root.restoreIndex()
                 root.ensureData(false)
-                root.saveSoon()
               }
             }
           }
@@ -638,7 +331,7 @@ Panel {
                 id: episodeRow
                 required property int index
                 required property var modelData
-                readonly property var mediaPlayer: root.playerFor(modelData)
+                readonly property var mediaPlayer: root.listen ? root.listen.playerFor(modelData) : null
 
                 width: episodeColumn.width
                 height: root.rowHeight
@@ -783,9 +476,9 @@ Panel {
 
           MouseArea {
             anchors.fill: parent
-            enabled: root.canSeek && root.playbackPlayer.positionSupported && root.playbackLength > 0
+            enabled: root.canSeek && root.playbackPlayer && root.playbackPlayer.positionSupported && root.playbackLength > 0
             cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-            onClicked: function(mouse) { root.seekTo(mouse.x / width) }
+            onClicked: function(mouse) { if (root.listen) root.listen.seekTo(mouse.x / width) }
           }
         }
 
@@ -837,12 +530,12 @@ Panel {
               size: Style.space(30)
               radius: size / 2
               enabled: root.canSeek
-              onClicked: root.seekBy(-15)
+              onClicked: if (root.listen) root.listen.seekBy(-15)
             }
 
             PanelActionButton {
               iconText: root.playbackPlayer && root.playbackPlayer.isPlaying ? "󰏤" : "󰐊"
-              tooltipText: root.playbackPlayer && root.playbackPlayer.isPlaying ? "Pause · enter or space" : "Play · enter or space"
+              tooltipText: root.playbackPlayer && root.playbackPlayer.isPlaying ? "Pause · space" : "Play · space"
               foreground: root.playbackPlayer && root.playbackPlayer.isPlaying ? Color.accent : root.foreground
               hoverColor: Color.accent
               fontFamily: root.fontFamily
@@ -850,7 +543,7 @@ Panel {
               radius: size / 2
               bordered: true
               enabled: root.playbackPlayer !== null
-              onClicked: root.togglePlayer(root.playbackPlayer)
+              onClicked: if (root.listen) root.listen.togglePlaying()
             }
 
             PanelActionButton {
@@ -862,7 +555,7 @@ Panel {
               size: Style.space(30)
               radius: size / 2
               enabled: root.canSeek
-              onClicked: root.seekBy(30)
+              onClicked: if (root.listen) root.listen.seekBy(30)
             }
           }
 
@@ -915,7 +608,7 @@ Panel {
           anchors.leftMargin: Style.space(14)
           anchors.verticalCenter: parent.verticalCenter
           width: parent.width - Style.space(14)
-          text: root.errorText && root.visibleRows.length ? root.errorText : (root.launchingEpisodeId ? "Opening episode…" : (root.openShow && root.tab === 2 ? "esc back  ·  ↑↓ choose  ·  enter play  ·  space pause" : "←→ tabs  ·  ↑↓ choose  ·  enter play  ·  space pause"))
+          text: root.errorText && root.visibleRows.length ? root.errorText : (root.launchingEpisodeId ? "Opening episode…" : (root.openShow && root.tab === 2 ? "esc/← back  ·  enter play  ·  space pause" : "←→ tabs  ·  enter play  ·  space pause"))
           color: root.dim
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption

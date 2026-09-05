@@ -251,6 +251,35 @@ function enqueue(queue, item) {
   return next.slice(0, 100)
 }
 
+function mergeEpisodes(existing, incoming) {
+  var next = Array.isArray(existing) ? existing.slice() : []
+  var seen = {}
+  for (var i = 0; i < next.length; i++) seen[episodeKey(next[i])] = true
+  var extra = Array.isArray(incoming) ? incoming : []
+  for (var j = 0; j < extra.length; j++) {
+    var item = extra[j]
+    var key = episodeKey(item)
+    if (!key || seen[key]) continue
+    seen[key] = true
+    next.push(item)
+  }
+  return next
+}
+
+function mergeShows(existing, incoming) {
+  var next = Array.isArray(existing) ? existing.slice() : []
+  var seen = {}
+  for (var i = 0; i < next.length; i++) seen[next[i] && next[i].podcastId] = true
+  var extra = Array.isArray(incoming) ? incoming : []
+  for (var j = 0; j < extra.length; j++) {
+    var show = extra[j]
+    if (!show || !show.podcastId || seen[show.podcastId]) continue
+    seen[show.podcastId] = true
+    next.push(show)
+  }
+  return next
+}
+
 function mergeQueue(disk, memory) {
   var merged = Array.isArray(disk) ? disk.slice() : []
   var live = Array.isArray(memory) ? memory : []
@@ -276,6 +305,32 @@ function rememberPosition(queue, item, position, duration) {
     next.push(copy)
   }
   return next
+}
+
+function scheduleFetch(pending, kind, url) {
+  if (!kind || !url) return Array.isArray(pending) ? pending.slice() : []
+  var source = Array.isArray(pending) ? pending : []
+  var next = []
+  var dropMore = kind === "shows" || kind === "show"
+  var moreKind = kind === "shows" ? "moreShows" : (kind === "show" ? "moreShow" : "")
+  var replaced = false
+  for (var i = 0; i < source.length; i++) {
+    var job = source[i]
+    if (!job) continue
+    if (dropMore && job.kind === moreKind) continue
+    if (job.kind === kind) {
+      next.push({ kind: kind, url: url })
+      replaced = true
+    } else next.push(job)
+  }
+  if (!replaced) next.push({ kind: kind, url: url })
+  return next
+}
+
+function takeFetch(pending) {
+  var source = Array.isArray(pending) ? pending : []
+  if (!source.length) return { job: null, rest: [] }
+  return { job: source[0], rest: source.slice(1) }
 }
 
 function isFresh(fetchedAt, now, ttlMs) {
@@ -340,8 +395,12 @@ if (typeof module !== "undefined") {
     playbackProgress: playbackProgress,
     episodeKey: episodeKey,
     enqueue: enqueue,
+    mergeEpisodes: mergeEpisodes,
+    mergeShows: mergeShows,
     mergeQueue: mergeQueue,
     rememberPosition: rememberPosition,
+    scheduleFetch: scheduleFetch,
+    takeFetch: takeFetch,
     isFresh: isFresh,
     parseState: parseState,
     emptyState: emptyState,

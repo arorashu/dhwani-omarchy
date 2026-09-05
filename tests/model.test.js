@@ -10,6 +10,17 @@ assert.strictEqual(
   'https://api-v1.dhwani.io/v1/podcasts/9QqWbjH5mqlrsiaHMba1?limit=20&offset=20'
 );
 assert.ok(Model.curlHeaders().includes('Origin: https://podcast.dhwani.io'));
+let jobs = Model.scheduleFetch([], 'trending', 'https://api.example/t');
+jobs = Model.scheduleFetch(jobs, 'shows', 'https://api.example/s');
+assert.strictEqual(jobs.length, 2);
+jobs = Model.scheduleFetch(jobs, 'trending', 'https://api.example/t2');
+assert.strictEqual(jobs[0].url, 'https://api.example/t2');
+jobs = Model.scheduleFetch(jobs, 'moreShows', 'https://api.example/s2');
+jobs = Model.scheduleFetch(jobs, 'shows', 'https://api.example/s0');
+assert.deepStrictEqual(jobs.map((job) => job.kind), ['trending', 'shows']);
+const taken = Model.takeFetch(jobs);
+assert.strictEqual(taken.job.kind, 'trending');
+assert.strictEqual(taken.rest.length, 1);
 assert.strictEqual(Model.playbackTitle({ title: 'Episode', podcastTitle: 'Podcast' }), 'Episode · Podcast');
 assert.strictEqual(Model.formatDuration(59), '1m');
 assert.strictEqual(Model.formatDuration(3661), '1h 01m');
@@ -84,6 +95,7 @@ assert.strictEqual(podcasts.ok, true);
 assert.strictEqual(podcasts.total, 88);
 assert.strictEqual(podcasts.shows[0].kind, 'show');
 assert.strictEqual(podcasts.shows.length, 1);
+assert.strictEqual(Model.mergeShows(podcasts.shows, podcasts.shows).length, 1);
 
 const show = Model.parseShow(JSON.stringify({
   podcast: { podcast_id: '9QqWbjH5mqlrsiaHMba1', title: 'Y Combinator Startup Podcast' },

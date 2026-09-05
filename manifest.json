@@ -6,8 +6,10 @@
   "author": "Dhwani",
   "license": "MIT",
   "description": "A quiet doorway from the Omarchy bar to something worth hearing.",
-  "kinds": ["bar-widget"],
+  "kinds": ["service", "bar-widget"],
+  "keepLoaded": true,
   "entryPoints": {
+    "service": "Service.qml",
     "barWidget": "BarWidget.qml"
   },
   "barWidget": {

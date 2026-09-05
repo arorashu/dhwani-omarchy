@@ -48,7 +48,7 @@ To install a local checkout instead:
 ```bash
 omarchy plugin validate .
 mkdir -p ~/.config/omarchy/plugins/io.dhwani.listen
-cp -a manifest.json BarWidget.qml Panel.qml Model.js play.py \
+cp -a manifest.json BarWidget.qml Panel.qml Service.qml Model.js play.py state.py \
   ~/.config/omarchy/plugins/io.dhwani.listen/
 omarchy-shell shell rescanPlugins
 omarchy plugin enable io.dhwani.listen --section center

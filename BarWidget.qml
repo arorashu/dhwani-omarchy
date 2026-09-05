@@ -16,6 +16,7 @@ BarWidget {
     panel.settings = root.settings
     panel.anchorItem = button
     panel.hostWidget = root
+    panel.service = root.bar && root.bar.shell && root.bar.shell.serviceFor ? root.bar.shell.serviceFor("io.dhwani.listen") : null
   }
 
   function open() { if (panelLoader.item) panelLoader.item.open() }

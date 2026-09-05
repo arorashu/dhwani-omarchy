@@ -8,7 +8,7 @@ Before opening a pull request, run:
 omarchy plugin validate .
 imports=$(mktemp -d)
 ln -s /usr/share/omarchy/shell "$imports/qs"
-/usr/lib/qt6/bin/qmllint -I "$imports" BarWidget.qml Panel.qml
+/usr/lib/qt6/bin/qmllint -I "$imports" BarWidget.qml Panel.qml Service.qml
 rm -rf "$imports"
 node tests/model.test.js
 python3 tests/test_play.py
