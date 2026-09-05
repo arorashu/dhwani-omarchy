@@ -273,14 +273,6 @@ Item {
 
   function saveSoon() { saveTimer.restart() }
 
-  onCurrentPlaybackChanged: {
-    capturePlaying()
-    if (currentPlayback && pendingSeek > 0 && playbackLength > 0) {
-      seekTo(pendingSeek / playbackLength)
-      pendingSeek = 0
-    }
-  }
-
   Process {
     id: netProcess
     command: []
@@ -346,7 +338,14 @@ Item {
     interval: 1000
     repeat: true
     running: root.playbackPlayer && root.playbackPlayer.isPlaying && root.playbackPlayer.positionSupported
-    onTriggered: if (root.playbackPlayer) root.playbackPlayer.positionChanged()
+    onTriggered: {
+      if (root.playbackPlayer) root.playbackPlayer.positionChanged()
+      root.capturePlaying()
+      if (root.currentPlayback && root.pendingSeek > 0 && root.playbackLength > 0) {
+        root.seekTo(root.pendingSeek / root.playbackLength)
+        root.pendingSeek = 0
+      }
+    }
   }
 
   Timer {
