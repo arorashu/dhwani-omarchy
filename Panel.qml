@@ -150,17 +150,6 @@ Panel {
     contentWidth: fittedContentWidth(Style.space(520))
     contentHeight: fittedContentHeight(Style.space(570))
 
-    Shortcut {
-      sequences: ["h"]
-      enabled: root.opened
-      onActivated: if (root.listen) root.listen.seekBy(-15)
-    }
-    Shortcut {
-      sequences: ["l"]
-      enabled: root.opened
-      onActivated: if (root.listen) root.listen.seekBy(30)
-    }
-
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
@@ -184,6 +173,17 @@ Panel {
       onTabRequested: function(direction) { root.switchPanel(direction) }
       onTextKey: function(text) {
         if (text === "r" || text === "R") root.refresh()
+      }
+
+      Shortcut {
+        sequences: ["h"]
+        enabled: root.opened
+        onActivated: if (root.listen) root.listen.seekBy(-15)
+      }
+      Shortcut {
+        sequences: ["l"]
+        enabled: root.opened
+        onActivated: if (root.listen) root.listen.seekBy(30)
       }
 
       Item {
