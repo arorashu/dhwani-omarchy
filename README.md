@@ -166,7 +166,8 @@ ruff format --check play.py state.py tests
 - `super` + `ctrl` + `m`: open or close (when the optional binding above is installed)
 - click: open or close
 - right-click: refresh and open
-- `←` / `→` or `h` / `l`: switch Trending, Queue, and All Shows
+- `←` / `→`: switch Trending, Queue, and All Shows
+- `h` / `l`: back 15 seconds / forward 30 seconds
 - `↑` / `↓` or `j` / `k`: choose
 - `enter` or `space`: open a show, play an episode, or toggle the current one
 - click the progress bar or −15 / +30: seek

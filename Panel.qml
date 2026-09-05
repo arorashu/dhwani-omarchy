@@ -150,6 +150,17 @@ Panel {
     contentWidth: fittedContentWidth(Style.space(520))
     contentHeight: fittedContentHeight(Style.space(570))
 
+    Shortcut {
+      sequences: ["h"]
+      enabled: root.opened
+      onActivated: if (root.listen) root.listen.seekBy(-15)
+    }
+    Shortcut {
+      sequences: ["l"]
+      enabled: root.opened
+      onActivated: if (root.listen) root.listen.seekBy(30)
+    }
+
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
@@ -608,7 +619,7 @@ Panel {
           anchors.leftMargin: Style.space(14)
           anchors.verticalCenter: parent.verticalCenter
           width: parent.width - Style.space(14)
-          text: root.errorText && root.visibleRows.length ? root.errorText : (root.launchingEpisodeId ? "Opening episode…" : (root.openShow && root.tab === 2 ? "esc/← back  ·  enter play  ·  space pause" : "←→ tabs  ·  enter play  ·  space pause"))
+          text: root.errorText && root.visibleRows.length ? root.errorText : (root.launchingEpisodeId ? "Opening episode…" : (root.openShow && root.tab === 2 ? "esc/← back  ·  h/l seek  ·  enter play  ·  space pause" : "←→ tabs  ·  h/l seek  ·  enter play  ·  space pause"))
           color: root.dim
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
