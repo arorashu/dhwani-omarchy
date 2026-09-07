@@ -12,7 +12,7 @@ function originHeader() {
 }
 
 function userAgent() {
-  return "Dhwani-Omarchy/0.1 (+https://github.com/arorashu/dhwani-omarchy)"
+  return "Dhwani-Omarchy/0.1.0 (+https://github.com/arorashu/dhwani-omarchy)"
 }
 
 function curlHeaders() {
