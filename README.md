@@ -103,8 +103,10 @@ GET /v1/podcasts?limit=20&offset=0
 GET /v1/podcasts/{podcast_id}?limit=20&offset=0
 Accept: application/json
 Origin: https://podcast.dhwani.io
-User-Agent: Dhwani-Omarchy/0.1 (+https://github.com/arorashu/dhwani-omarchy)
+User-Agent: Dhwani-Omarchy/0.1.0 (+https://github.com/arorashu/dhwani-omarchy)
 ```
+
+The API User-Agent identifies the plugin and its release version for server-side diagnostics. It carries no account or installation identifier and grants no special access. It applies to API requests, not artwork or `mpv` audio requests; the plugin sends no playback telemetry. Release changes must update `manifest.json` and `Model.js` together; the model tests enforce version agreement.
 
 A playable item needs only:
 

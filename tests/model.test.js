@@ -10,6 +10,11 @@ assert.strictEqual(
   'https://api-v1.dhwani.io/v1/podcasts/9QqWbjH5mqlrsiaHMba1?limit=20&offset=20'
 );
 assert.ok(Model.curlHeaders().includes('Origin: https://podcast.dhwani.io'));
+const manifest = require('../manifest.json');
+const userAgents = Model.curlHeaders().filter((header) => header.startsWith('User-Agent:'));
+assert.deepStrictEqual(userAgents, [
+  `User-Agent: Dhwani-Omarchy/${manifest.version} (+https://github.com/arorashu/dhwani-omarchy)`,
+]);
 let jobs = Model.scheduleFetch([], 'trending', 'https://api.example/t');
 jobs = Model.scheduleFetch(jobs, 'shows', 'https://api.example/s');
 assert.strictEqual(jobs.length, 2);
