@@ -238,6 +238,18 @@ function coerceEpisode(item) {
   return episode(item)
 }
 
+function resumeEpisode(queue, item) {
+  var incoming = coerceEpisode(item)
+  if (!incoming) return null
+  var source = Array.isArray(queue) ? queue : []
+  for (var i = 0; i < source.length; i++) {
+    if (episodeKey(source[i]) !== episodeKey(incoming)) continue
+    incoming.position = Math.max(0, Number(source[i].position) || 0)
+    break
+  }
+  return incoming
+}
+
 function enqueue(queue, item) {
   var incoming = coerceEpisode(item)
   if (!incoming) return Array.isArray(queue) ? queue.slice() : []
@@ -395,6 +407,7 @@ if (typeof module !== "undefined") {
     playbackProgress: playbackProgress,
     episodeKey: episodeKey,
     enqueue: enqueue,
+    resumeEpisode: resumeEpisode,
     mergeEpisodes: mergeEpisodes,
     mergeShows: mergeShows,
     mergeQueue: mergeQueue,

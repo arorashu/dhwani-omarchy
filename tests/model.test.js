@@ -1,5 +1,6 @@
 const assert = require('assert');
 const Model = require('../Model.js');
+const manifest = require('../manifest.json');
 
 assert.strictEqual(Model.feedUrl('http://127.0.0.1:8791///'), 'http://127.0.0.1:8791/v1/foryou/all');
 assert.strictEqual(Model.feedUrl('--config=/tmp/evil'), '');
@@ -10,7 +11,6 @@ assert.strictEqual(
   'https://api-v1.dhwani.io/v1/podcasts/9QqWbjH5mqlrsiaHMba1?limit=20&offset=20'
 );
 assert.ok(Model.curlHeaders().includes('Origin: https://podcast.dhwani.io'));
-const manifest = require('../manifest.json');
 const userAgents = Model.curlHeaders().filter((header) => header.startsWith('User-Agent:'));
 assert.deepStrictEqual(userAgents, [
   `User-Agent: Dhwani-Omarchy/${manifest.version} (+https://github.com/arorashu/dhwani-omarchy)`,
@@ -123,6 +123,17 @@ assert.strictEqual(stacked.length, 1);
 assert.strictEqual(stacked[0].title, 'Updated');
 const remembered = Model.rememberPosition(stacked, stacked[0], 42, 1284);
 assert.strictEqual(remembered[0].position, 42);
+const freshRow = Object.assign({}, show.episodes[0], { title: 'Fresh metadata', position: 0 });
+const resumed = Model.resumeEpisode(remembered, freshRow);
+assert.strictEqual(resumed.position, 42);
+assert.strictEqual(resumed.title, 'Fresh metadata');
+assert.strictEqual(freshRow.position, 0);
+assert.strictEqual(Model.resumeEpisode([], freshRow).position, 0);
+const rewound = Model.rememberPosition(remembered, remembered[0], 0, 1284);
+assert.strictEqual(Model.resumeEpisode(rewound, resumed).position, 0);
+assert.strictEqual(Model.mergeQueue(remembered, rewound)[0].position, 0);
+const urlOnly = Object.assign({}, freshRow, { episodeId: '' });
+assert.strictEqual(Model.resumeEpisode([Object.assign({}, urlOnly, { position: 21 })], urlOnly).position, 21);
 const merged = Model.mergeQueue(
   [{ episodeId: 'old1', title: 'Old', audioUrl: 'https://cdn.example.test/old.mp3', podcastTitle: 'P' }],
   stacked
