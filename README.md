@@ -156,6 +156,7 @@ ln -s /usr/share/omarchy/shell "$imports/qs"
 /usr/lib/qt6/bin/qmllint -I "$imports" BarWidget.qml Panel.qml
 rm -rf "$imports"
 node tests/model.test.js
+node tests/service.test.js
 node tests/artwork.test.js
 python3 tests/test_qml_runtime.py
 python3 tests/test_play.py
@@ -175,10 +176,13 @@ The offscreen runtime test requires Quickshell, curl, and `dbus-run-session`. It
 - `←` / `→`: switch Trending, Queue, and All Shows
 - `h` / `l`: back 15 seconds / forward 30 seconds
 - `↑` / `↓` or `j` / `k`: choose
-- `enter` or `space`: open a show, play an episode, or toggle the current one
+- `enter`: open a show, play an episode, or toggle the selected episode if already playing
+- `space`: play/pause the current episode
 - click the progress bar or −15 / +30: seek
 - `r`: refresh the current remote list, ignoring cache
 - `escape`: leave a show, or close
+
+The in-panel bindings are fixed in this release. Configure the global open/close shortcut in Hyprland using the optional binding in [Install](#install); the plugin does not reserve a global shortcut automatically.
 
 ## License
 

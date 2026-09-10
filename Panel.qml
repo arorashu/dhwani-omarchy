@@ -538,7 +538,7 @@ Panel {
 
             PanelActionButton {
               iconText: "−15"
-              tooltipText: "Back 15 seconds"
+              tooltipText: "Back 15 seconds · h"
               foreground: root.foreground
               fontFamily: root.fontFamily
               fontSize: Style.font.caption
@@ -546,6 +546,16 @@ Panel {
               radius: size / 2
               enabled: root.canSeek
               onClicked: if (root.listen) root.listen.seekBy(-15)
+
+              Text {
+                anchors.top: parent.bottom
+                anchors.topMargin: Style.space(2)
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: "h"
+                color: root.dim
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+              }
             }
 
             PanelActionButton {
@@ -563,7 +573,7 @@ Panel {
 
             PanelActionButton {
               iconText: "+30"
-              tooltipText: "Forward 30 seconds"
+              tooltipText: "Forward 30 seconds · l"
               foreground: root.foreground
               fontFamily: root.fontFamily
               fontSize: Style.font.caption
@@ -571,6 +581,16 @@ Panel {
               radius: size / 2
               enabled: root.canSeek
               onClicked: if (root.listen) root.listen.seekBy(30)
+
+              Text {
+                anchors.top: parent.bottom
+                anchors.topMargin: Style.space(2)
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: "l"
+                color: root.dim
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+              }
             }
           }
 

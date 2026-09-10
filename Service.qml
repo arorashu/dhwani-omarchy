@@ -26,6 +26,7 @@ Item {
   property int episodeLimit: 10
   property int staleAfterMs: 600000
   property real pendingSeek: 0
+  property string pendingSeekEpisodeId: ""
   property bool stateReady: false
   property bool hydrating: false
   property string errorText: ""
@@ -232,7 +233,7 @@ Item {
     var item = currentPlayback.episode
     var key = Model.episodeKey(item)
     if (!key || key === queuedId) return
-    queue = Model.enqueue(queue, item)
+    queue = Model.enqueue(queue, Model.resumeEpisode(queue, item))
     queuedId = key
     saveState()
   }
@@ -246,6 +247,9 @@ Item {
 
   function playEpisode(item) {
     if (!item || item.kind === "show" || !item.audioUrl || playerProcess.running) return
+    rememberPlayback()
+    item = Model.resumeEpisode(queue, item)
+    if (!item) return
     queue = Model.enqueue(queue, item)
     queuedId = Model.episodeKey(item)
     saveState()
@@ -256,9 +260,18 @@ Item {
     }
     launchingEpisodeId = item.episodeId || item.audioUrl
     pendingSeek = item.position > 5 ? item.position : 0
+    pendingSeekEpisodeId = Model.episodeKey(item)
     errorText = ""
     playerProcess.command = ["python3", helperPath, item.audioUrl, Model.playbackTitle(item)]
     playerProcess.running = true
+  }
+
+  function resumePendingPlayback() {
+    if (!currentPlayback || pendingSeek <= 0 || playbackLength <= 0) return
+    if (Model.episodeKey(currentPlayback.episode) !== pendingSeekEpisodeId) return
+    if (!seekTo(pendingSeek / playbackLength)) return
+    pendingSeek = 0
+    pendingSeekEpisodeId = ""
   }
 
   function applyState(raw, diskWins) {
@@ -372,10 +385,7 @@ Item {
     onTriggered: {
       if (root.playbackPlayer) root.playbackPlayer.positionChanged()
       root.capturePlaying()
-      if (root.currentPlayback && root.pendingSeek > 0 && root.playbackLength > 0) {
-        root.seekTo(root.pendingSeek / root.playbackLength)
-        root.pendingSeek = 0
-      }
+      root.resumePendingPlayback()
     }
   }
 
