@@ -2,13 +2,13 @@
 
 import json
 import os
-from pathlib import Path
 import struct
 import subprocess
 import tempfile
 import threading
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import zlib
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 IDS = ("BgvRZTg8v9GYMpbxcvFk", "XgosndFz4gzOM4oHrfYI")
@@ -107,6 +107,7 @@ def test_artwork_runtime(folder):
             cwd=folder,
             stdin=subprocess.DEVNULL,
             capture_output=True,
+            check=False,
             text=True,
             timeout=25,
         )
