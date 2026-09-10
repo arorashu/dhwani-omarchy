@@ -156,6 +156,7 @@ ln -s /usr/share/omarchy/shell "$imports/qs"
 /usr/lib/qt6/bin/qmllint -I "$imports" BarWidget.qml Panel.qml
 rm -rf "$imports"
 node tests/model.test.js
+node tests/artwork.test.js
 python3 tests/test_play.py
 python3 tests/test_state.py
 python3 tests/test_e2e.py

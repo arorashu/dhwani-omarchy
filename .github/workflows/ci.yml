@@ -26,6 +26,8 @@ jobs:
           /usr/lib/qt6/bin/qmllint -I /tmp/qml-imports BarWidget.qml Panel.qml Service.qml
       - name: Test model
         run: node tests/model.test.js
+      - name: Test artwork resolution
+        run: node tests/artwork.test.js
       - name: Test playback and state
         run: python tests/test_play.py && python tests/test_state.py && python tests/test_e2e.py && python tests/test_qml_contract.py
       - name: Lint Python
