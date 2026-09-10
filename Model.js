@@ -37,11 +37,11 @@ function podcastsUrl(baseUrl, offset) {
   return base ? base + "/v1/podcasts?limit=" + pageSize() + "&offset=" + Math.max(0, parseInt(offset, 10) || 0) : ""
 }
 
-function showUrl(baseUrl, podcastId, offset) {
+function showUrl(baseUrl, podcastId, offset, limit) {
   var base = normalizeBaseUrl(baseUrl)
   var id = clean(podcastId)
   if (!base || !/^[A-Za-z0-9]{20}$/.test(id)) return ""
-  return base + "/v1/podcasts/" + id + "?limit=" + pageSize() + "&offset=" + Math.max(0, parseInt(offset, 10) || 0)
+  return base + "/v1/podcasts/" + id + "?limit=" + (limit || pageSize()) + "&offset=" + Math.max(0, parseInt(offset, 10) || 0)
 }
 
 function playableUrl(options) {

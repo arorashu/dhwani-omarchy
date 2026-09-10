@@ -132,14 +132,20 @@ Item {
       var id = detail.show ? detail.show.podcastId : ""
       if (!id) return
       var previous = showRecord(id)
-      var keepPages = kind.indexOf("artwork:") === 0 && previous.episodes.length > 0
-      putShow(id, {
-        title: detail.show.title,
-        artworkUrl: detail.show.artworkUrl,
-        episodes: keepPages ? previous.episodes : (kind === "moreShow" ? Model.mergeEpisodes(previous.episodes, detail.episodes) : detail.episodes),
-        total: keepPages ? previous.total : detail.total,
-        fetchedAt: keepPages ? previous.fetchedAt : Date.now()
-      })
+      if (kind.indexOf("artwork:") === 0) {
+        // Artwork lookups must not populate episodes or refresh their timestamp.
+        previous.title = detail.show.title
+        previous.artworkUrl = detail.show.artworkUrl
+        putShow(id, previous)
+      } else {
+        putShow(id, {
+          title: detail.show.title,
+          artworkUrl: detail.show.artworkUrl,
+          episodes: kind === "moreShow" ? Model.mergeEpisodes(previous.episodes, detail.episodes) : detail.episodes,
+          total: detail.total,
+          fetchedAt: Date.now()
+        })
+      }
     }
     errorText = ""
     saveSoon()
@@ -155,11 +161,12 @@ Item {
   }
 
   function ensureArtwork(items) {
+    // Reuse saved artwork until show browsing updates it; retry misses after the TTL.
     if (!apiBase) return
     for (var i = 0; i < items.length; i++) {
       var item = items[i]
       if (item.kind === "show" || artworkFor(item)) continue
-      var url = Model.showUrl(apiBase, item.podcastId, 0)
+      var url = Model.showUrl(apiBase, item.podcastId, 0, 1)
       if (!url || Model.isFresh(artworkRequested[item.podcastId], Date.now(), staleAfterMs)) continue
       artworkRequested[item.podcastId] = Date.now()
       request("artwork:" + item.podcastId, url)

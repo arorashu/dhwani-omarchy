@@ -25,6 +25,8 @@ const ownArtwork = { ...founders, artworkUrl: 'https://example.test/episode.png'
 // A cold feed requests once per show, without collapsing different shows into one job.
 service.ensureArtwork([founders, { ...founders }, lex, ownArtwork]);
 assert.strictEqual(service.fetchQueue.length, 2);
+assert.ok(service.fetchQueue.every(job => job.url.endsWith('?limit=1&offset=0')));
+assert.ok(Model.showUrl(service.apiBase, founders.podcastId, 0).endsWith('?limit=20&offset=0'));
 assert.deepStrictEqual(service.fetchQueue.map(job => job.kind), [
   `artwork:${founders.podcastId}`, `artwork:${lex.podcastId}`,
 ]);
@@ -72,5 +74,19 @@ assert.strictEqual(service.fetchQueue.length, 1);
 service.fetchQueue = [];
 service.ensureArtwork([{ ...lex, podcastId: '../invalid' }, { ...lex, kind: 'show' }]);
 assert.strictEqual(service.fetchQueue.length, 0);
+
+// A cold artwork lookup must discard the endpoint's incidental episode page.
+service.showsById = {};
+service.pendingKind = `artwork:${founders.podcastId}`;
+service.applyNetwork(JSON.stringify({
+  podcast: { podcast_id: founders.podcastId, title: 'Founders', artwork_url: 'https://example.test/show.png' },
+  episodes: [{ episode_id: 'abcdefghij', title: 'Incidental episode',
+    media_options: [{ path: 'https://example.test/audio.mp3', source_type: 'RSS' }] }],
+  total_episodes: 80,
+}));
+assert.strictEqual(service.artworkFor(founders), 'https://example.test/show.png');
+assert.strictEqual(service.showsById[founders.podcastId].episodes.length, 0);
+assert.strictEqual(service.showsById[founders.podcastId].total, 0);
+assert.strictEqual(service.showsById[founders.podcastId].fetchedAt, 0);
 
 console.log('Artwork resolution tests passed (service JavaScript, not live QML)');

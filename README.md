@@ -157,12 +157,15 @@ ln -s /usr/share/omarchy/shell "$imports/qs"
 rm -rf "$imports"
 node tests/model.test.js
 node tests/artwork.test.js
+python3 tests/test_qml_runtime.py
 python3 tests/test_play.py
 python3 tests/test_state.py
 python3 tests/test_e2e.py
 ruff check play.py state.py tests
 ruff format --check play.py state.py tests
 ```
+
+The offscreen runtime test requires Quickshell, curl, and `dbus-run-session`. It uses a local fixture API and isolated state/D-Bus session to verify image bindings, request deduplication, and QML persistence. It does not test the full panel, desktop integration, or playback. `test_e2e.py` covers the fixture-to-queue data flow, not a running desktop.
 
 ## Controls
 
