@@ -44,6 +44,9 @@ Panel {
   readonly property int staleAfterMs: Math.max(30000, (parseInt(setting("staleAfterSec", 600), 10) || 600) * 1000)
   readonly property int rowHeight: Style.space(66)
   readonly property var tabs: ["Trending", "Queue", "All Shows"]
+  onVisibleRowsChanged: Qt.callLater(function() {
+    if (root.opened && root.listen) root.listen.ensureArtwork(root.visibleRows)
+  })
 
   function open() {
     controller.show()
@@ -70,6 +73,7 @@ Panel {
     if (tab === 0) listen.ensureTrending(force)
     else if (tab === 2 && !openShow) listen.ensureShows(force)
     else if (tab === 2 && openShow) listen.ensureShow(openShow.podcastId, force)
+    listen.ensureArtwork(visibleRows)
   }
 
   function refresh() {
@@ -371,7 +375,7 @@ Panel {
 
                   Image {
                     anchors.fill: parent
-                    source: modelData.artworkUrl
+                    source: root.listen ? root.listen.artworkFor(modelData) : modelData.artworkUrl
                     sourceSize.width: 96
                     sourceSize.height: 96
                     asynchronous: true

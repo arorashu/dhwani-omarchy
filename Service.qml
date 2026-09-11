@@ -14,6 +14,7 @@ Item {
   property var trending: []
   property var shows: []
   property var showsById: ({})
+  property var artworkRequested: ({})
   property int showsTotal: 0
   property double trendingAt: 0
   property double showsAt: 0
@@ -126,21 +127,51 @@ Item {
       shows = kind === "moreShows" ? Model.mergeShows(shows, list.shows) : list.shows
       showsTotal = list.total
       showsAt = Date.now()
-    } else if (kind === "show" || kind === "moreShow") {
+    } else if (kind === "show" || kind === "moreShow" || kind.indexOf("artwork:") === 0) {
       var detail = Model.parseShow(raw)
       if (!detail.ok) { errorText = detail.error; return }
       var id = detail.show ? detail.show.podcastId : ""
       if (!id) return
       var previous = showRecord(id)
-      putShow(id, {
-        title: detail.show.title,
-        episodes: kind === "moreShow" ? Model.mergeEpisodes(previous.episodes, detail.episodes) : detail.episodes,
-        total: detail.total,
-        fetchedAt: Date.now()
-      })
+      if (kind.indexOf("artwork:") === 0) {
+        // Artwork lookups must not populate episodes or refresh their timestamp.
+        previous.title = detail.show.title
+        previous.artworkUrl = detail.show.artworkUrl
+        putShow(id, previous)
+      } else {
+        putShow(id, {
+          title: detail.show.title,
+          artworkUrl: detail.show.artworkUrl,
+          episodes: kind === "moreShow" ? Model.mergeEpisodes(previous.episodes, detail.episodes) : detail.episodes,
+          total: detail.total,
+          fetchedAt: Date.now()
+        })
+      }
     }
     errorText = ""
     saveSoon()
+  }
+
+  function artworkFor(item) {
+    if (item.artworkUrl) return item.artworkUrl
+    var cached = showRecord(item.podcastId)
+    if (cached.artworkUrl) return cached.artworkUrl
+    for (var i = 0; i < shows.length; i++)
+      if (shows[i].podcastId === item.podcastId) return shows[i].artworkUrl || ""
+    return ""
+  }
+
+  function ensureArtwork(items) {
+    // Reuse saved artwork until show browsing updates it; retry misses after the TTL.
+    if (!apiBase) return
+    for (var i = 0; i < items.length; i++) {
+      var item = items[i]
+      if (item.kind === "show" || artworkFor(item)) continue
+      var url = Model.showUrl(apiBase, item.podcastId, 0, 1)
+      if (!url || Model.isFresh(artworkRequested[item.podcastId], Date.now(), staleAfterMs)) continue
+      artworkRequested[item.podcastId] = Date.now()
+      request("artwork:" + item.podcastId, url)
+    }
   }
 
   function playerFor(item) {

@@ -13,7 +13,7 @@ jobs:
     container: archlinux:latest
     steps:
       - name: Install test tools
-        run: pacman -Syu --noconfirm git jq nodejs python qt6-declarative quickshell ruff
+        run: pacman -Syu --noconfirm git jq nodejs python qt6-declarative quickshell ruff curl dbus
       - uses: actions/checkout@v4
       - name: Fetch Omarchy 4.0.2 contracts
         run: git clone --depth 1 --branch v4.0.2 https://github.com/basecamp/omarchy.git /tmp/omarchy
@@ -26,6 +26,10 @@ jobs:
           /usr/lib/qt6/bin/qmllint -I /tmp/qml-imports BarWidget.qml Panel.qml Service.qml
       - name: Test model and service orchestration
         run: node tests/model.test.js && node tests/service.test.js
+      - name: Test artwork resolution
+        run: node tests/artwork.test.js
+      - name: Test offscreen QML runtime
+        run: python tests/test_qml_runtime.py
       - name: Test playback and state
         run: python tests/test_play.py && python tests/test_state.py && python tests/test_e2e.py && python tests/test_qml_contract.py
       - name: Lint Python
