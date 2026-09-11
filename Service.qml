@@ -394,15 +394,35 @@ Item {
     if (stateReady) return
     var cache = state.cache || {}
     if (cache.trending && cache.trending.episodes) {
-      trending = cache.trending.episodes
+      // Cached rows predate the current playback policy: drop unplayable
+      // (YouTube) rows while keeping the saved row objects and metadata.
+      trending = Model.filterCachedEpisodes(cache.trending.episodes)
       trendingAt = Number(cache.trending.fetchedAt) || 0
     }
     if (cache.shows && cache.shows.items) {
       shows = cache.shows.items
       showsTotal = Number(cache.shows.total) || shows.length
+      // Raw list offset, so pagination survives a restart; legacy states fall
+      // back to the stored show count (before any row is filtered).
+      showsNextOffset = Model.cachedNextOffset(cache.shows, shows.length)
       showsAt = Number(cache.shows.fetchedAt) || 0
     }
-    if (cache.showsById && typeof cache.showsById === "object") showsById = cache.showsById
+    if (cache.showsById && typeof cache.showsById === "object") {
+      var records = {}
+      for (var id in cache.showsById) {
+        if (!Object.prototype.hasOwnProperty.call(cache.showsById, id)) continue
+        var record = cache.showsById[id]
+        if (!record || typeof record !== "object") continue
+        var loaded = Array.isArray(record.episodes) ? record.episodes.length : 0
+        var copy = {}
+        for (var field in record)
+          if (Object.prototype.hasOwnProperty.call(record, field)) copy[field] = record[field]
+        copy.episodes = Model.filterCachedEpisodes(record.episodes)
+        copy.nextOffset = Model.cachedNextOffset(record, loaded)
+        records[id] = copy
+      }
+      showsById = records
+    }
   }
 
   function dumpState() {
@@ -412,7 +432,7 @@ Item {
       nav: { tab: 0, trendingIndex: 0, queueIndex: 0, showsIndex: 0, showIndex: 0, openShowId: "", openShowTitle: "" },
       cache: {
         trending: { fetchedAt: trendingAt, episodes: trending },
-        shows: { fetchedAt: showsAt, items: shows, total: showsTotal },
+        shows: { fetchedAt: showsAt, items: shows, total: showsTotal, nextOffset: showsNextOffset },
         showsById: showsById
       }
     })

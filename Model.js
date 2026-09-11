@@ -334,6 +334,29 @@ function coerceEpisode(item) {
   return episode(item)
 }
 
+function isCachedEpisode(item) {
+  if (!item || typeof item !== "object" || item.kind === "show") return false
+  if (!item.audioUrl || !item.title) return false
+  return isPlayableAudioUrl(clean(item.audioUrl))
+}
+
+function filterCachedEpisodes(source) {
+  var input = Array.isArray(source) ? source : []
+  var rows = []
+  for (var i = 0; i < input.length; i++) {
+    // Keep the persisted row object itself: hydration must drop unplayable
+    // (YouTube) rows without losing saved metadata such as position/duration.
+    if (isCachedEpisode(input[i])) rows.push(input[i])
+  }
+  return rows
+}
+
+function cachedNextOffset(record, originalCount) {
+  if (record && record.nextOffset !== undefined && record.nextOffset !== null)
+    return Math.max(0, parseInt(record.nextOffset, 10) || 0)
+  return Math.max(0, parseInt(originalCount, 10) || 0)
+}
+
 function resumeEpisode(queue, item) {
   var incoming = coerceEpisode(item)
   if (!incoming) return null
@@ -535,6 +558,9 @@ if (typeof module !== "undefined") {
     parseState: parseState,
     emptyState: emptyState,
     coerceEpisode: coerceEpisode,
+    isCachedEpisode: isCachedEpisode,
+    filterCachedEpisodes: filterCachedEpisodes,
+    cachedNextOffset: cachedNextOffset,
     pageSize: pageSize,
   }
 }

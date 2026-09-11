@@ -143,6 +143,90 @@ def test_artwork_runtime(folder):
         worker.join(timeout=5)
 
 
+def test_hydration_runtime(folder):
+    state_dir = folder / "state" / "dhwani-omarchy"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    rss_row = {
+        "kind": "episode",
+        "episodeId": "cached-rss",
+        "podcastId": SEARCH_SHOW,
+        "title": "Cached RSS",
+        "podcastTitle": "Founders",
+        "artworkUrl": "https://example.test/founders.png",
+        "audioUrl": "https://example.test/cached.mp3",
+        "duration": 600,
+        "position": 12,
+        "publication_date": "2025-01-02T03:04:05+00:00",
+    }
+    youtube_row = {
+        "kind": "episode",
+        "episodeId": "cached-yt",
+        "podcastId": SEARCH_SHOW,
+        "title": "Cached YouTube",
+        "podcastTitle": "Founders",
+        "audioUrl": "https://www.youtube.com/watch?v=abc",
+        "position": 4,
+    }
+    (state_dir / "state.json").write_text(
+        json.dumps(
+            {
+                "schemaVersion": 1,
+                "queue": [rss_row, youtube_row],
+                "nav": {},
+                "cache": {
+                    "trending": {"fetchedAt": 111, "episodes": [rss_row, youtube_row]},
+                    "shows": {
+                        "fetchedAt": 222,
+                        "items": [
+                            {
+                                "kind": "show",
+                                "podcastId": SEARCH_SHOW,
+                                "title": "Founders",
+                                "artworkUrl": "https://example.test/founders.png",
+                                "episodeCount": 88,
+                            }
+                        ],
+                        "total": 88,
+                        "nextOffset": 20,
+                    },
+                    "showsById": {
+                        SEARCH_SHOW: {
+                            "title": "Founders",
+                            "artworkUrl": "https://example.test/founders.png",
+                            "fetchedAt": 333,
+                            "total": 88,
+                            "nextOffset": 20,
+                            "episodes": [youtube_row, rss_row],
+                        }
+                    },
+                },
+            }
+        )
+    )
+    logs, result = run_quickshell(
+        folder,
+        (ROOT / "tests/fixtures/hydration-runtime.qml").read_text(),
+        "http://127.0.0.1:1",
+    )
+    assert result.returncode == 0, logs
+    line = next((row for row in logs.splitlines() if "HYDRATION:" in row), None)
+    assert line, logs
+    report = json.loads(line.split("HYDRATION:", 1)[1])
+    assert report["trending"] == 1, report
+    assert report["trendingPosition"] == 12, report
+    assert report["trendingPublished"] == "2025-01-02T03:04:05+00:00", report
+    assert report["showEpisodes"] == 1, report
+    assert report["showEpisodeId"] == "cached-rss", report
+    assert report["showNextOffset"] == 20, report
+    assert report["showTotal"] == 88, report
+    assert report["showArtwork"] == "https://example.test/founders.png", report
+    assert report["showFetchedAt"] == 333, report
+    assert report["showsNextOffset"] == 20, report
+    assert report["showsTotal"] == 88, report
+    assert report["showsItems"] == 1, report
+    assert report["queue"] == 1, report
+
+
 def search_page(base: str, query: str, kind: str, offset: int, podcast_id: str):
     if query == "stale":
         time.sleep(1.2)
@@ -295,5 +379,8 @@ if __name__ == "__main__":
     with tempfile.TemporaryDirectory(prefix="dhwani-qml-test-") as directory:
         root = Path(directory)
         test_artwork_runtime(root / "artwork")
+        test_hydration_runtime(root / "hydration")
         test_search_runtime(root / "search")
-    print("QML runtime tests passed: artwork resolution and search state")
+    print(
+        "QML runtime tests passed: artwork resolution, state hydration, and search state"
+    )

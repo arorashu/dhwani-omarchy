@@ -31,10 +31,14 @@ function makeContext() {
     pendingGeneration: -1,
     pendingKind: '',
     fetchQueue: [],
+    queue: [],
+    queuedId: '',
+    stateReady: false,
     shows: [],
     showsById: {},
     showsTotal: 0,
     showsNextOffset: 0,
+    showsAt: 0,
     trending: [],
     trendingAt: 0,
     errorText: '',
@@ -52,7 +56,7 @@ function makeContext() {
   };
   const names = [
     'beginSearch', 'applyNetworkFailure', 'runSearch', 'pageSearch', 'clearSearch', 'applyNetwork',
-    'pageShows', 'pageShow', 'showRecord', 'putShow', 'showNextOffset',
+    'pageShows', 'pageShow', 'showRecord', 'putShow', 'showNextOffset', 'applyState', 'dumpState',
   ];
   for (const name of names) {
     const match = source.match(new RegExp(`  function ${name}\\([^]*?\\n  \\}`));
@@ -239,5 +243,95 @@ showContext.pageShow('9QqWbjH5mqlrsiaHMba1');
 assert.strictEqual(showContext.fetchQueue.length, 0);
 // Records persisted before nextOffset existed fall back to the loaded length.
 assert.strictEqual(showContext.showNextOffset(showContext.showsById['9QqWbjH5mqlrsiaHMba1']), 1);
+
+// Hydration (Service.applyState): persisted YouTube rows never reach Trending or a
+// show's episode list, raw offsets survive the restart, and original metadata is kept.
+const SHOW_ID = '9QqWbjH5mqlrsiaHMba1';
+const cachedRss = {
+  kind: 'episode', episodeId: 'cached-rss', podcastId: SHOW_ID, title: 'Cached RSS',
+  podcastTitle: 'Founders', artworkUrl: 'https://img.example.test/f.png',
+  audioUrl: 'https://cdn.example.test/cached.mp3', duration: 600, position: 12,
+  publication_date: '2025-01-02T03:04:05+00:00',
+};
+const cachedYoutube = {
+  kind: 'episode', episodeId: 'cached-yt', podcastId: SHOW_ID, title: 'Cached YouTube',
+  podcastTitle: 'Founders', audioUrl: 'https://www.youtube.com/watch?v=abc', position: 4,
+};
+const persistedShow = {
+  kind: 'show', podcastId: SHOW_ID, title: 'Founders',
+  artworkUrl: 'https://img.example.test/f.png', episodeCount: 88,
+};
+
+function persistedState(cache) {
+  return JSON.stringify({ schemaVersion: 1, queue: [], nav: {}, cache });
+}
+
+const hydrated = makeContext();
+hydrated.applyState(persistedState({
+  trending: { fetchedAt: 111, episodes: [cachedRss, cachedYoutube] },
+  shows: { fetchedAt: 222, items: [persistedShow], total: 88, nextOffset: 20 },
+  showsById: {
+    [SHOW_ID]: {
+      title: 'Founders', artworkUrl: 'https://img.example.test/f.png', fetchedAt: 333,
+      total: 88, nextOffset: 20, episodes: [cachedYoutube, cachedRss],
+    },
+  },
+}), false);
+assert.strictEqual(hydrated.trending.length, 1, 'YouTube trending rows are dropped on hydration');
+assert.strictEqual(hydrated.trending[0].episodeId, 'cached-rss');
+assert.strictEqual(hydrated.trending[0].position, 12);
+assert.strictEqual(hydrated.trending[0].duration, 600);
+assert.strictEqual(hydrated.trending[0].publication_date, '2025-01-02T03:04:05+00:00', 'hydration must not re-normalize valid rows away');
+assert.strictEqual(hydrated.trendingAt, 111);
+const hydratedRecord = hydrated.showsById[SHOW_ID];
+assert.strictEqual(hydratedRecord.episodes.length, 1, 'YouTube show rows are dropped on hydration');
+assert.strictEqual(hydratedRecord.episodes[0].episodeId, 'cached-rss');
+assert.strictEqual(hydratedRecord.episodes[0].publication_date, '2025-01-02T03:04:05+00:00');
+assert.strictEqual(hydratedRecord.nextOffset, 20, 'raw show offset is preserved even though a row was dropped');
+assert.strictEqual(hydratedRecord.total, 88);
+assert.strictEqual(hydratedRecord.artworkUrl, 'https://img.example.test/f.png');
+assert.strictEqual(hydratedRecord.title, 'Founders');
+assert.strictEqual(hydratedRecord.fetchedAt, 333);
+assert.strictEqual(hydrated.showsNextOffset, 20, 'All Shows pagination offset is restored from disk');
+assert.strictEqual(hydrated.showsTotal, 88);
+assert.strictEqual(hydrated.showsAt, 222);
+assert.deepStrictEqual(hydrated.shows[0], persistedShow);
+
+// dumpState roundtrip: the restored offset is written back and re-read.
+const dumped = JSON.parse(hydrated.dumpState());
+assert.strictEqual(dumped.cache.shows.nextOffset, 20);
+assert.strictEqual(dumped.cache.showsById[SHOW_ID].nextOffset, 20);
+const roundtrip = makeContext();
+roundtrip.applyState(hydrated.dumpState(), false);
+assert.strictEqual(roundtrip.showsNextOffset, 20, 'a real dump/apply roundtrip keeps pagination working');
+assert.strictEqual(roundtrip.showsById[SHOW_ID].nextOffset, 20);
+assert.strictEqual(roundtrip.showsById[SHOW_ID].episodes.length, 1);
+roundtrip.fetchQueue = [];
+roundtrip.pageShows();
+assert.strictEqual(roundtrip.fetchQueue.length, 1, 'pageShows can advance after a restart');
+assert.ok(roundtrip.fetchQueue[0].url.endsWith('offset=20'), 'pageShows uses the raw stored offset');
+roundtrip.fetchQueue = [];
+roundtrip.pageShow(SHOW_ID);
+assert.strictEqual(roundtrip.fetchQueue.length, 1, 'pageShow can advance after a restart');
+assert.ok(roundtrip.fetchQueue[0].url.endsWith('offset=20'));
+
+// An all-excluded persisted page keeps its stored offset for the next page request.
+const allExcluded = makeContext();
+allExcluded.applyState(persistedState({
+  showsById: { [SHOW_ID]: { title: 'Founders', total: 40, nextOffset: 20, episodes: [cachedYoutube] } },
+}), false);
+assert.strictEqual(allExcluded.showsById[SHOW_ID].episodes.length, 0);
+assert.strictEqual(allExcluded.showsById[SHOW_ID].nextOffset, 20, 'a stored offset outlives a fully-filtered page');
+
+// Legacy persisted records have no nextOffset: infer the original count before filtering.
+const legacy = makeContext();
+legacy.applyState(persistedState({
+  shows: { fetchedAt: 5, items: [persistedShow], total: 88 },
+  showsById: { [SHOW_ID]: { title: 'Founders', total: 88, episodes: [cachedRss, cachedYoutube] } },
+}), false);
+assert.strictEqual(legacy.showsNextOffset, 1, 'legacy All Shows uses the stored show count');
+assert.strictEqual(legacy.showsById[SHOW_ID].nextOffset, 2, 'legacy show count is taken before filtering');
+assert.strictEqual(legacy.showsById[SHOW_ID].episodes.length, 1);
+assert.strictEqual(legacy.showsById[SHOW_ID].total, 88);
 
 console.log('Search orchestration tests passed (extracted JavaScript, not a live QML test)');

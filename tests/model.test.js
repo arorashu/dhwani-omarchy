@@ -260,6 +260,23 @@ const youtubeState = Model.parseState(
 );
 assert.strictEqual(youtubeState.queue.length, 0);
 
+// Hydration policy: cached episode rows keep their saved metadata but unplayable
+// (YouTube) rows are dropped; stored raw offsets survive restart, and legacy
+// records without one fall back to the row count before any filtering.
+const persistedRss = { episodeId: 'keep', title: 'Keep', audioUrl: 'https://cdn.example.test/keep.mp3', position: 12 };
+const persistedYoutube = { episodeId: 'yt', title: 'Drop', audioUrl: 'https://www.youtube.com/watch?v=abc' };
+assert.strictEqual(Model.isCachedEpisode(persistedRss), true);
+assert.strictEqual(Model.isCachedEpisode(persistedYoutube), false);
+assert.strictEqual(Model.isCachedEpisode({ kind: 'show', title: 'S', audioUrl: 'https://cdn.example.test/a.mp3' }), false);
+const filteredRows = Model.filterCachedEpisodes([persistedRss, persistedYoutube, null]);
+assert.deepStrictEqual(filteredRows, [persistedRss]);
+assert.strictEqual(filteredRows[0], persistedRss, 'valid rows keep their identity and metadata');
+assert.strictEqual(Model.cachedNextOffset({ nextOffset: 20 }, 1), 20, 'stored raw offset wins over the visible count');
+assert.strictEqual(Model.cachedNextOffset({ nextOffset: 0 }, 3), 0, 'a stored zero is a real offset, not a missing one');
+assert.strictEqual(Model.cachedNextOffset({}, 3), 3, 'legacy records fall back to the original count');
+assert.strictEqual(Model.cachedNextOffset({ nextOffset: '17' }, 3), 17);
+assert.strictEqual(Model.cachedNextOffset(null, 4), 4);
+
 let searchJobs = Model.scheduleFetch([], 'search', 'https://api.example/s1', 1);
 searchJobs = Model.scheduleFetch(searchJobs, 'search', 'https://api.example/s2', 2);
 assert.deepStrictEqual(searchJobs.map((job) => job.url), ['https://api.example/s2']);
