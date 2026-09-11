@@ -1,6 +1,8 @@
 import importlib.util
 import json
+import shutil
 import socket
+import subprocess
 import tempfile
 import threading
 import time
@@ -24,6 +26,64 @@ def test_only_http_audio_sources_are_accepted():
     assert not play.valid_url("https://music.youtube.com/watch?v=abc")
     assert not play.valid_url("https://www.youtube-nocookie.com/embed/abc")
     assert play.valid_url("https://notyoutube.com/episode.mp3")
+
+
+def test_title_normalization_caps_unicode_without_splitting_emoji():
+    assert play.normalize_title("  a\t\tb\n c  ") == "a b c"
+    assert play.normalize_title("   ") == "Dhwani"
+    assert play.normalize_title("x" * 300) == "x" * 240
+    long_label = "A" * 230 + "\n\n  🙂" + "B" * 40
+    capped = play.normalize_title(long_label)
+    assert len(capped) == 240
+    assert capped[231] == "🙂"
+    assert capped.endswith("B" * 8)
+    assert "\ufffd" not in capped
+    assert play.normalize_title(capped) == capped
+
+
+def model_playback_title(item: dict) -> str:
+    """Ask the real Model.js for the label Service.qml would hand play.py."""
+    node = shutil.which("node")
+    assert node, "node is required to verify Model.playbackTitle parity"
+    script = (
+        "const Model=require(process.argv[1]);"
+        "process.stdout.write(Model.playbackTitle(JSON.parse(process.argv[2])))"
+    )
+    result = subprocess.run(
+        [
+            node,
+            "-e",
+            script,
+            str(Path(__file__).parents[1] / "Model.js"),
+            json.dumps(item),
+        ],
+        capture_output=True,
+        check=False,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    return result.stdout
+
+
+def test_model_label_is_a_fixed_point_of_the_python_normalization():
+    # Service.playerFor compares Model.playbackTitle(item) with the mpv/MPRIS
+    # title, which is play.py's normalize_title(Model label). The two must
+    # therefore agree exactly for long labels, internal whitespace and a
+    # Unicode emoji straddling the 240 code-point cap.
+    cases = [
+        {"title": "Episode", "podcastTitle": "Podcast"},
+        {"title": "  spaced   title\n\nwith\ttabs  ", "podcastTitle": "  Show  "},
+        {"title": "A" * 230 + "\n\n  🙂" + "B" * 40, "podcastTitle": "Proof  Show"},
+        {"title": "🙂" * 300, "podcastTitle": ""},
+        {"title": "   ", "podcastTitle": "   "},
+        {"title": "x" * 241, "podcastTitle": ""},
+        {"title": "a\x1cb\x85c\u00a0d", "podcastTitle": "e"},
+        {"title": "a\ufeffb", "podcastTitle": "c"},
+    ]
+    for item in cases:
+        label = model_playback_title(item)
+        assert play.normalize_title(label) == label, (item, label)
 
 
 def test_mpv_is_audio_only_and_uses_its_own_ipc_socket():
@@ -167,6 +227,8 @@ def test_delayed_ack_does_not_spawn_or_unlink_owner():
 
 if __name__ == "__main__":
     test_only_http_audio_sources_are_accepted()
+    test_title_normalization_caps_unicode_without_splitting_emoji()
+    test_model_label_is_a_fixed_point_of_the_python_normalization()
     test_mpv_is_audio_only_and_uses_its_own_ipc_socket()
     test_concurrent_launches_start_one_player()
     test_reused_player_loads_and_unpauses()

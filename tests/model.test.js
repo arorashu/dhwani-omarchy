@@ -27,6 +27,21 @@ const taken = Model.takeFetch(jobs);
 assert.strictEqual(taken.job.kind, 'trending');
 assert.strictEqual(taken.rest.length, 1);
 assert.strictEqual(Model.playbackTitle({ title: 'Episode', podcastTitle: 'Podcast' }), 'Episode · Podcast');
+assert.strictEqual(Model.playbackTitle(null), '');
+assert.strictEqual(Model.playbackTitle({ title: '', podcastTitle: '' }), 'Dhwani');
+assert.strictEqual(
+  Model.playbackTitle({ title: '  spaced   title\n\nwith\ttabs  ', podcastTitle: '  Show  ' }),
+  'spaced title with tabs · Show'
+);
+// Parity with play.py: cap at 240 Unicode code points, never split an emoji.
+const cappedTitle = Model.playbackTitle({
+  title: 'A'.repeat(230) + '\n\n  🙂' + 'B'.repeat(40),
+  podcastTitle: 'Proof  Show',
+});
+assert.strictEqual(Array.from(cappedTitle).length, 240);
+assert.strictEqual(Array.from(cappedTitle)[231], '🙂');
+assert.strictEqual(cappedTitle.endsWith('B'.repeat(8)), true);
+assert.strictEqual(cappedTitle.includes('\uFFFD'), false);
 assert.strictEqual(Model.formatDuration(59), '1m');
 assert.strictEqual(Model.formatDuration(3661), '1h 01m');
 assert.strictEqual(Model.formatPosition(0), '0:00');

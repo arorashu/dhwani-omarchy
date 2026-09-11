@@ -57,6 +57,27 @@ def qml_bool_to_python(expression: str) -> str:
     return re.sub(r"!(?!=)", " not ", expression)
 
 
+def search_field_key_block(source: str) -> str:
+    """Return the search field's Keys.onPressed handler body."""
+    lines = source.splitlines()
+    start = next(
+        i for i, line in enumerate(lines) if line.strip().startswith("id: searchField")
+    )
+    capturing = False
+    depth = 0
+    block = []
+    for line in lines[start:]:
+        if not capturing and "Keys.onPressed" in line:
+            capturing = True
+        if capturing:
+            block.append(line)
+            depth += line.count("{") - line.count("}")
+            if depth <= 0:
+                break
+    assert block, "searchField has no Keys.onPressed handler"
+    return "\n".join(block)
+
+
 def test_refresh_button_allows_retry_for_a_queue_search():
     # Regression: the button was disabled whenever tab === 1, so a search that
     # was started from the Queue tab could not be refreshed or retried.
@@ -86,6 +107,43 @@ def test_refresh_retries_search_before_the_queue_early_return():
     assert "if (searchActive)" in body
     assert "beginSearch" in body
     assert body.index("searchActive") < body.index("tab === 1")
+
+
+def test_back_from_a_show_reloads_the_show_list():
+    # Regression: opening a show from a Trending show search on a cold All Shows
+    # cache left the list empty after Escape, because back() cleared openShow
+    # without asking the service for the show list again.
+    source = (ROOT / "Panel.qml").read_text(encoding="utf-8")
+    body = function_body(source, "back")
+    assert "openShow = null" in body
+    assert "ensureData(false)" in body
+    assert body.index("openShow = null") < body.index("ensureData(false)")
+    # Ordinary browsing navigation is preserved: the saved cursor is restored
+    # before the list is (re)requested, so returning never resets the position.
+    assert body.index("restoreIndex()") < body.index("ensureData(false)")
+    # back() must reach the All Shows branch of ensureData for the reload to run.
+    ensure = function_body(source, "ensureData")
+    assert "tab === 2 && !openShow" in ensure
+    assert "ensureShows(force)" in ensure
+
+
+def test_search_field_tab_switches_mode_and_keeps_focus():
+    block = search_field_key_block((ROOT / "Panel.qml").read_text(encoding="utf-8"))
+    assert "Qt.Key_Tab" in block
+    assert "Qt.Key_Backtab" in block
+    assert "root.setSearchKind(" in block
+    # Tab toggles in both directions between the two search modes.
+    assert 'root.searchKind === "shows"' in block
+    # Native Tab must not hand focus to the next item: typing continues.
+    assert "searchField.forceActiveFocus()" in block
+    # Focus traversal must be suppressed.
+    assert "event.accepted = true" in block
+
+
+def test_search_bar_advertises_the_tab_mode_switch():
+    source = (ROOT / "Panel.qml").read_text(encoding="utf-8")
+    search_bar = source[source.index("id: searchBar") : source.index("id: separator")]
+    assert '"tab switches mode"' in search_bar
 
 
 def keyboard_panel_children(source: str) -> list[str]:
@@ -131,4 +189,7 @@ if __name__ == "__main__":
     test_shortcut_as_keyboard_panel_child_is_rejected()
     test_refresh_button_allows_retry_for_a_queue_search()
     test_refresh_retries_search_before_the_queue_early_return()
+    test_back_from_a_show_reloads_the_show_list()
+    test_search_field_tab_switches_mode_and_keeps_focus()
+    test_search_bar_advertises_the_tab_mode_switch()
     print("QML contract tests passed")

@@ -14,6 +14,10 @@ drives the real production helper ``play.py``:
 The user's mpv, session bus, audio device, listening queue and state files are
 never touched. Every child is bounded and the task-owned mpv is always asked to
 quit over its own IPC socket.
+
+Missing tools must never yield a green "proof passed". A standalone developer
+run prints a clear SKIP and exits 0; CI passes ``--strict`` (or sets
+``DHWANI_PROOF_STRICT=1``) so the mpv/MPRIS prerequisites are hard requirements.
 """
 
 import functools
@@ -37,7 +41,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PLAY = ROOT / "play.py"
 TITLE_A = "Episode Alpha · Proof Show"
-TITLE_B = "Episode Beta · Proof Show"
+# Exactly 240 Unicode code points with an emoji near the cap: this is the shape
+# of label Model.js now produces for a long title, and the label mpv/MPRIS must
+# report verbatim (play.py's cap must be a no-op on it).
+TITLE_B = "Episode Beta " + "x" * 212 + " 🙂 · Proof Show"
+assert len(TITLE_B) == 240, len(TITLE_B)
 DURATION = 45
 SAMPLE_RATE = 22050
 MPRIS_SCRIPT_CANDIDATES = [
@@ -47,6 +55,8 @@ MPRIS_SCRIPT_CANDIDATES = [
 ]
 STARTUP_TIMEOUT = 25
 PROCESS_EXIT_TIMEOUT = 10
+STRICT_ENV = "DHWANI_PROOF_STRICT"
+REQUIRED_TOOLS = ("mpv", "dbus-run-session", "busctl")
 
 
 def log(message: str) -> None:
@@ -57,6 +67,34 @@ def check(condition: bool, message: str) -> None:
     if not condition:
         raise AssertionError(message)
     log(f"ok: {message}")
+
+
+def strict_mode() -> bool:
+    """CI proof mode: missing prerequisites fail instead of skipping."""
+    return os.environ.get(STRICT_ENV) == "1"
+
+
+def missing_prerequisites() -> list:
+    missing = [tool for tool in REQUIRED_TOOLS if shutil.which(tool) is None]
+    if not any(path.exists() for path in MPRIS_SCRIPT_CANDIDATES):
+        missing.append("mpv-mpris mpris.so")
+    return missing
+
+
+def require_prerequisites() -> bool:
+    """Return True when the proof can run; False only for a labelled dev skip."""
+    missing = missing_prerequisites()
+    if not missing:
+        return True
+    reason = f"missing playback proof prerequisites: {', '.join(missing)}"
+    if strict_mode():
+        raise SystemExit(f"playback proof failed: {reason}")
+    print(f"SKIP: {reason}")
+    print(
+        "Developer note: install mpv, mpv-mpris, dbus and systemd (busctl) for "
+        f"the full proof, or set {STRICT_ENV}=1 to make missing tools a failure."
+    )
+    return False
 
 
 class RangeHandler(http.server.SimpleHTTPRequestHandler):
@@ -162,6 +200,7 @@ def launch(helper: Path, url: str, title: str, env: dict) -> None:
         [sys.executable, str(helper), url, title],
         env=env,
         capture_output=True,
+        check=False,
         text=True,
         timeout=30,
     )
@@ -315,9 +354,13 @@ def child_main(root: Path) -> int:
             "mpv reports the stream seekable",
         )
 
-        mpris_available = shutil.which("busctl") and any(
-            path.exists() for path in MPRIS_SCRIPT_CANDIDATES
-        )
+        missing = missing_prerequisites()
+        if missing:
+            reason = f"missing playback proof prerequisites: {', '.join(missing)}"
+            if strict_mode():
+                raise AssertionError(reason)
+            log(f"skip: {reason}; MPRIS assertions skipped")
+        mpris_available = not missing
         name = ""
         if mpris_available:
             name = mpris_name()
@@ -332,8 +375,6 @@ def child_main(root: Path) -> int:
                 f"MPRIS mpris:length {length_us}us matches the WAV",
             )
             check(props.get("CanSeek") is True, "MPRIS CanSeek is true")
-        else:
-            log("skip: busctl/mpris.so unavailable, MPRIS assertions skipped")
 
         position = float(wait_property(socket_file, "playback-time"))
         check(position >= 0, f"playback-time reported ({position:.2f}s)")
@@ -384,8 +425,7 @@ def child_main(root: Path) -> int:
 
 
 def parent_main() -> int:
-    if shutil.which("mpv") is None or shutil.which("dbus-run-session") is None:
-        print("SKIP: mpv and/or dbus-run-session unavailable")
+    if not require_prerequisites():
         return 0
     root = Path(tempfile.mkdtemp(prefix="dhwani-playback-"))
     (root / "home").mkdir()
@@ -422,7 +462,7 @@ def parent_main() -> int:
     ]
     try:
         result = subprocess.run(
-            command, env=env, capture_output=True, text=True, timeout=120
+            command, env=env, capture_output=True, check=False, text=True, timeout=120
         )
     finally:
         shutil.rmtree(root, ignore_errors=True)
@@ -434,7 +474,16 @@ def parent_main() -> int:
     return 0
 
 
+def main() -> int:
+    args = sys.argv[1:]
+    if args and args[0] == "--child":
+        if len(args) != 2:
+            raise SystemExit("--child requires a sandbox root")
+        return child_main(Path(args[1]))
+    if "--strict" in args:
+        os.environ[STRICT_ENV] = "1"
+    return parent_main()
+
+
 if __name__ == "__main__":
-    if len(sys.argv) == 3 and sys.argv[1] == "--child":
-        raise SystemExit(child_main(Path(sys.argv[2])))
-    raise SystemExit(parent_main())
+    raise SystemExit(main())

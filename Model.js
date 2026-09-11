@@ -265,11 +265,24 @@ function parseShow(raw) {
   }
 }
 
+var playbackTitleLimit = 240
+// play.py normalizes the label with Python's str.split(), whose whitespace set
+// differs from JS \s: it includes \x1c-\x1f and \x85 and excludes the BOM.
+// Mirror Python exactly so the Model label equals what mpv/MPRIS reports.
+var playbackWhitespace = /[\t\n\v\f\r\x1c-\x1f \x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+/g
+
 function playbackTitle(item) {
   if (!item) return ""
   var title = clean(item.title)
   var podcast = clean(item.podcastTitle)
-  return title + (podcast ? " · " + podcast : "")
+  var label = (title + (podcast ? " · " + podcast : ""))
+    .replace(playbackWhitespace, " ")
+    .replace(/^ +| +$/g, "")
+  // Cap by Unicode code point, like Python's str slice, so an emoji at the
+  // boundary is never split in half (JS slice would cut a surrogate pair).
+  var points = Array.from(label)
+  if (points.length > playbackTitleLimit) label = points.slice(0, playbackTitleLimit).join("")
+  return label || "Dhwani"
 }
 
 function formatDuration(seconds) {

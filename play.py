@@ -27,6 +27,15 @@ def valid_url(value: str) -> bool:
     )
 
 
+def normalize_title(title: str) -> str:
+    """Collapse whitespace and cap at 240 code points.
+
+    This is the safety cap the model-side ``Model.playbackTitle`` mirrors, so
+    the label Service.qml compares against mpv/MPRIS is the label mpv stores.
+    """
+    return " ".join(title.split())[:240] or "Dhwani"
+
+
 def runtime_dir() -> Path:
     value = os.getenv("XDG_RUNTIME_DIR")
     if not value:
@@ -154,7 +163,7 @@ def locked(runtime: Path):
 def play(url: str, title: str) -> None:
     if not valid_url(url):
         raise ValueError("Dhwani only opens HTTP audio URLs")
-    title = " ".join(title.split())[:240] or "Dhwani"
+    title = normalize_title(title)
     runtime = runtime_dir()
     ipc = socket_path(runtime)
     with locked(runtime):

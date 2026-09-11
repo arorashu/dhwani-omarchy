@@ -278,6 +278,9 @@ Panel {
       saveCurrentIndex()
       openShow = null
       restoreIndex()
+      // Leaving a show returns to All Shows: request the list when no fresh
+      // cache exists (e.g. a show opened from Trending search on a cold cache).
+      ensureData(false)
       return
     }
     close()
@@ -395,6 +398,8 @@ Panel {
                 event.accepted = true
               } else if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
                 root.setSearchKind(root.searchKind === "shows" ? "episodes" : "shows")
+                // Native Tab switches the search mode; keep typing in the field.
+                searchField.forceActiveFocus()
                 event.accepted = true
               } else if (event.key === Qt.Key_Down) {
                 root.moveCursor(1)
@@ -499,6 +504,16 @@ Panel {
             cursorShape: Qt.PointingHandCursor
             onClicked: root.setSearchKind("shows")
           }
+        }
+
+        Text {
+          text: "tab switches mode"
+          color: root.dim
+          opacity: 0.7
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.bodySmall
+          height: searchBar.height
+          verticalAlignment: Text.AlignVCenter
         }
 
         Row {
