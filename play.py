@@ -10,9 +10,21 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 
+def youtube_url(value: str) -> bool:
+    host = (urlparse(value).hostname or "").lower().rstrip(".")
+    return any(
+        host == suffix or host.endswith("." + suffix)
+        for suffix in ("youtube.com", "youtu.be", "youtube-nocookie.com")
+    )
+
+
 def valid_url(value: str) -> bool:
     parsed = urlparse(value)
-    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+    return (
+        parsed.scheme in {"http", "https"}
+        and bool(parsed.netloc)
+        and not youtube_url(value)
+    )
 
 
 def runtime_dir() -> Path:
@@ -98,6 +110,7 @@ def mpv_command(socket_file: Path, url: str, title: str) -> list[str]:
         "--force-window=no",
         "--no-terminal",
         "--pause=no",
+        "--ytdl=no",
         f"--input-ipc-server={socket_file}",
         f"--force-media-title={title}",
         url,

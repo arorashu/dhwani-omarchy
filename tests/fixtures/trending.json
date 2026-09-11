@@ -30,6 +30,41 @@
           "path": "https://cdn.example.test/sonos.mp3"
         }
       ]
+    },
+    {
+      "episode_id": "mixedRSS001",
+      "podcast_id": "H723798Y3sXSBvR4asU3",
+      "title": "A mixed-source episode",
+      "podcast_title": "Decoder with Nilay Patel",
+      "duration": 1800,
+      "media_options": [
+        {
+          "is_primary": true,
+          "source_type": "YouTube",
+          "mime_type": "video/mp4",
+          "path": "https://www.youtube.com/watch?v=mixed"
+        },
+        {
+          "source_type": "RSS",
+          "mime_type": "audio/mpeg",
+          "path": "https://cdn.example.test/mixed.mp3"
+        }
+      ]
+    },
+    {
+      "episode_id": "youtubeOnly1",
+      "podcast_id": "H723798Y3sXSBvR4asU3",
+      "title": "A YouTube-only episode",
+      "podcast_title": "Decoder with Nilay Patel",
+      "duration": 1800,
+      "media_options": [
+        {
+          "is_primary": true,
+          "source_type": "YouTube",
+          "mime_type": "video/mp4",
+          "path": "https://www.youtube.com/watch?v=only"
+        }
+      ]
     }
   ]
 }

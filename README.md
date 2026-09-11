@@ -12,6 +12,7 @@ A small native doorway to Dhwani: click the bar icon, choose an episode, and kee
 - one quiet bar icon
 - one keyboard-first listening panel
 - Trending, Queue, and All Shows tabs
+- `/` title search across episodes and shows, with optional per-show episode scope
 - paginated show lists and in-show episode lists
 - a local queue that stacks newly played episodes on top
 - 10-minute client-side cache so tab switches do not refetch
@@ -101,6 +102,7 @@ Anonymous requests send `Origin: https://podcast.dhwani.io` and a Dhwani user ag
 GET /v1/foryou/all
 GET /v1/podcasts?limit=20&offset=0
 GET /v1/podcasts/{podcast_id}?limit=20&offset=0
+GET /v1/search/titles?q=sleep&kind=episodes&limit=20&offset=0
 Accept: application/json
 Origin: https://podcast.dhwani.io
 User-Agent: Dhwani-Omarchy/0.1.0 (+https://github.com/arorashu/dhwani-omarchy)
@@ -158,6 +160,7 @@ rm -rf "$imports"
 node tests/model.test.js
 node tests/service.test.js
 node tests/artwork.test.js
+node tests/search.test.js
 python3 tests/test_qml_runtime.py
 python3 tests/test_play.py
 python3 tests/test_state.py
@@ -166,7 +169,7 @@ ruff check play.py state.py tests
 ruff format --check play.py state.py tests
 ```
 
-The offscreen runtime test requires Quickshell, curl, and `dbus-run-session`. It uses a local fixture API and isolated state/D-Bus session to verify image bindings, request deduplication, and QML persistence. It does not test the full panel, desktop integration, or playback. `test_e2e.py` covers the fixture-to-queue data flow, not a running desktop.
+The offscreen runtime test requires Quickshell, curl, and `dbus-run-session`. It uses a local fixture API and isolated state/D-Bus session to verify image bindings, request deduplication, QML persistence, search-state generation handling, pagination, and scope. It does not test the full panel, desktop integration, or playback. `test_e2e.py` covers the fixture-to-queue data flow, not a running desktop.
 
 ## Controls
 
@@ -174,6 +177,7 @@ The offscreen runtime test requires Quickshell, curl, and `dbus-run-session`. It
 - click: open or close
 - right-click: refresh and open
 - `←` / `→`: switch Trending, Queue, and All Shows
+- `/`: open title search; `tab` switches Episodes/Shows, `esc` clears scope then leaves search
 - `h` / `l`: back 15 seconds / forward 30 seconds
 - `↑` / `↓` or `j` / `k`: choose
 - `enter`: open a show, play an episode, or toggle the selected episode if already playing

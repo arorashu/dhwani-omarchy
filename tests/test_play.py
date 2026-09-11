@@ -18,6 +18,12 @@ def test_only_http_audio_sources_are_accepted():
     assert play.valid_url("http://localhost:8000/audio")
     assert not play.valid_url("file:///tmp/episode.mp3")
     assert not play.valid_url("not-a-url")
+    assert not play.valid_url("https://www.youtube.com/watch?v=abc")
+    assert not play.valid_url("https://youtube.com./watch?v=abc")
+    assert not play.valid_url("https://youtu.be/abc")
+    assert not play.valid_url("https://music.youtube.com/watch?v=abc")
+    assert not play.valid_url("https://www.youtube-nocookie.com/embed/abc")
+    assert play.valid_url("https://notyoutube.com/episode.mp3")
 
 
 def test_mpv_is_audio_only_and_uses_its_own_ipc_socket():
@@ -30,6 +36,7 @@ def test_mpv_is_audio_only_and_uses_its_own_ipc_socket():
     assert command[0] == "mpv"
     assert "--no-video" in command
     assert "--pause=no" in command
+    assert "--ytdl=no" in command
     assert f"--input-ipc-server={socket_file}" in command
     assert command[-1] == "https://cdn.example.test/episode.mp3"
 

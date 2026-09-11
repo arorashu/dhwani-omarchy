@@ -28,6 +28,8 @@ jobs:
         run: node tests/model.test.js && node tests/service.test.js
       - name: Test artwork resolution
         run: node tests/artwork.test.js
+      - name: Test search orchestration
+        run: node tests/search.test.js
       - name: Test offscreen QML runtime
         run: python tests/test_qml_runtime.py
       - name: Test playback and state

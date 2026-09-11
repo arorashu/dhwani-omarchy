@@ -149,4 +149,113 @@ const restored = Model.parseState(JSON.stringify({
 assert.strictEqual(restored.queue[0].audioUrl, 'https://cdn.example.test/pg.mp3');
 assert.strictEqual(restored.nav.tab, 2);
 
+// Title search URL, payload, and source policy
+assert.strictEqual(
+  Model.titleSearchUrl('https://api-v1.dhwani.io/', 'episodes', ' sleep ', 20, '9QqWbjH5mqlrsiaHMba1'),
+  'https://api-v1.dhwani.io/v1/search/titles?q=sleep&kind=episodes&limit=20&offset=20&podcast_id=9QqWbjH5mqlrsiaHMba1'
+);
+assert.strictEqual(
+  Model.titleSearchUrl('https://api-v1.dhwani.io', 'shows', 'sleep', 0, '9QqWbjH5mqlrsiaHMba1'),
+  'https://api-v1.dhwani.io/v1/search/titles?q=sleep&kind=shows&limit=20&offset=0'
+);
+assert.strictEqual(Model.titleSearchUrl('https://api-v1.dhwani.io', 'episodes', '   ', 0, ''), '');
+assert.strictEqual(Model.titleSearchUrl('https://api-v1.dhwani.io', 'episodes', 'x'.repeat(150), 0, '').includes('x'.repeat(101)), false);
+
+const youtubePrimary = { is_primary: true, source_type: 'YouTube', mime_type: 'video/mp4', path: 'https://www.youtube.com/watch?v=abc' };
+const rssAudio = { source_type: 'RSS', mime_type: 'audio/mpeg', path: 'https://cdn.example.test/audio.mp3' };
+assert.strictEqual(Model.playableUrl([youtubePrimary, rssAudio]), 'https://cdn.example.test/audio.mp3');
+assert.strictEqual(
+  Model.playableUrl([{ is_primary: true, path: 'https://cdn.example.test/no-metadata.mp3' }, rssAudio]),
+  'https://cdn.example.test/no-metadata.mp3'
+);
+assert.strictEqual(Model.playableUrl([youtubePrimary]), '');
+assert.strictEqual(Model.playableUrl([{ path: 'https://youtu.be/abc' }]), '');
+assert.strictEqual(Model.playableUrl([{ source_type: 'RSS', path: 'https://www.youtube.com/watch?v=abc' }]), '');
+assert.strictEqual(Model.playableUrl([{ mime_type: 'video/mp4', path: 'https://cdn.example.test/video.mp4' }]), '');
+assert.strictEqual(Model.isPlayableAudioUrl('https://www.youtube.com/watch?v=abc'), false);
+assert.strictEqual(Model.isPlayableAudioUrl('https://youtube.com./watch?v=abc'), false);
+assert.strictEqual(Model.isYouTubeUrl('https://www.youtube.com./watch?v=abc'), true);
+assert.strictEqual(Model.isPlayableAudioUrl('https://cdn.example.test/a.mp3'), true);
+assert.strictEqual(Model.playableUrl([{ is_primary: true, path: 'https://cdn.example.test/primary.mp3' }]), 'https://cdn.example.test/primary.mp3');
+
+const searchPayload = {
+  query: 'sleep',
+  kind: 'episodes',
+  limit: 20,
+  offset: 40,
+  total: 87,
+  episodes: [
+    {
+      video_id: 'ep1',
+      podcast_id: '9QqWbjH5mqlrsiaHMba1',
+      title: 'Sleep',
+      podcast_title: 'Show',
+      artwork_url: '',
+      podcast_artwork_url: 'https://cdn.example.test/show.png',
+      media_options: [rssAudio],
+    },
+    { video_id: 'ep2', title: 'YouTube only', media_options: [youtubePrimary] },
+  ],
+};
+const search = Model.parseTitleSearch(JSON.stringify(searchPayload));
+assert.strictEqual(search.ok, true);
+assert.strictEqual(search.kind, 'episodes');
+assert.strictEqual(search.total, 87);
+assert.strictEqual(search.nextOffset, 60);
+assert.deepStrictEqual(search.episodes.map((item) => item.episodeId), ['ep1']);
+assert.strictEqual(search.episodes[0].artworkUrl, 'https://cdn.example.test/show.png');
+assert.strictEqual(search.shows.length, 0);
+
+const showSearch = Model.parseTitleSearch(
+  JSON.stringify({
+    query: 'sleep',
+    kind: 'shows',
+    limit: 20,
+    offset: 0,
+    total: 3,
+    podcasts: [
+      { podcast_id: '9QqWbjH5mqlrsiaHMba1', title: 'Sleep Show', artwork_url: 'https://cdn.example.test/s.png', episode_count: 5 },
+    ],
+  })
+);
+assert.strictEqual(showSearch.kind, 'shows');
+assert.strictEqual(showSearch.shows.length, 1);
+assert.strictEqual(showSearch.shows[0].episodeCount, 5);
+assert.deepStrictEqual(showSearch.episodes, []);
+assert.strictEqual(Model.parseTitleSearch('{').ok, false);
+const emptySearch = Model.parseTitleSearch(
+  JSON.stringify({ query: 'zzz', kind: 'episodes', limit: 20, offset: 0, total: 0, episodes: [] })
+);
+assert.strictEqual(emptySearch.ok, true);
+assert.strictEqual(emptySearch.error, '');
+assert.strictEqual(emptySearch.total, 0);
+assert.notStrictEqual(Model.searchKey('episodes', 'a', ''), Model.searchKey('shows', 'a', ''));
+assert.notStrictEqual(Model.searchKey('episodes', 'a', ''), Model.searchKey('episodes', 'a', '9QqWbjH5mqlrsiaHMba1'));
+
+assert.strictEqual(
+  Model.coerceEpisode({ episodeId: 'yt', title: 'Old', audioUrl: 'https://www.youtube.com/watch?v=abc' }),
+  null
+);
+assert.strictEqual(
+  Model.coerceEpisode({ episodeId: 'ok', title: 'Old', audioUrl: 'https://cdn.example.test/a.mp3' }).audioUrl,
+  'https://cdn.example.test/a.mp3'
+);
+const youtubeState = Model.parseState(
+  JSON.stringify({ schemaVersion: 1, queue: [{ episodeId: 'yt', title: 'Old', audioUrl: 'https://youtu.be/abc' }] })
+);
+assert.strictEqual(youtubeState.queue.length, 0);
+
+let searchJobs = Model.scheduleFetch([], 'search', 'https://api.example/s1', 1);
+searchJobs = Model.scheduleFetch(searchJobs, 'search', 'https://api.example/s2', 2);
+assert.deepStrictEqual(searchJobs.map((job) => job.url), ['https://api.example/s2']);
+assert.strictEqual(searchJobs[0].token, 2);
+searchJobs = Model.scheduleFetch(searchJobs, 'moreSearch', 'https://api.example/s3', 2);
+assert.deepStrictEqual(searchJobs.map((job) => job.kind), ['search', 'moreSearch']);
+searchJobs = Model.scheduleFetch(searchJobs, 'search', 'https://api.example/s4', 3);
+assert.deepStrictEqual(searchJobs.map((job) => job.kind), ['search']);
+assert.strictEqual(Model.dropFetches(searchJobs, ['search', 'moreSearch']).length, 0);
+const priority = Model.takeFetch([{ kind: 'artwork:abc', url: 'a' }, { kind: 'trending', url: 't' }]);
+assert.strictEqual(priority.job.kind, 'trending');
+assert.deepStrictEqual(priority.rest.map((job) => job.kind), ['artwork:abc']);
+
 console.log('Model tests passed');

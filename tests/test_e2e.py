@@ -29,7 +29,10 @@ def test_fake_api_to_persisted_queue(tmp_path: Path):
     assert [item["episodeId"] for item in trending["episodes"]] == [
         "AOW3VXulOz",
         "ydMOiRDhLM",
+        "mixedRSS001",
     ]
+    assert trending["episodes"][2]["audioUrl"] == "https://cdn.example.test/mixed.mp3"
+    assert all("youtube.com" not in item["audioUrl"] for item in trending["episodes"])
     assert shows["total"] == 2
     assert show["episodes"][0]["podcastTitle"] == "Y Combinator Startup Podcast"
 
@@ -81,9 +84,49 @@ process.stdout.write(JSON.stringify(parsed));
     assert restored["queue"][1]["episodeId"] == "IuiARqppaF"
 
 
+def test_persisted_youtube_queue_entry_is_dropped(tmp_path: Path):
+    config = {"state_dir": tmp_path / "dhwani-omarchy"}
+    payload = state.empty()
+    payload["queue"] = [
+        {
+            "kind": "episode",
+            "episodeId": "yt",
+            "title": "Old YouTube",
+            "audioUrl": "https://www.youtube.com/watch?v=abc",
+        },
+        {
+            "kind": "episode",
+            "episodeId": "ok",
+            "title": "Keep",
+            "audioUrl": "https://cdn.example.test/keep.mp3",
+            "position": 12,
+        },
+    ]
+    state.save(payload, config)
+    restored = json.loads(
+        subprocess.check_output(
+            [
+                "node",
+                "-e",
+                f"""
+const Model = require({json.dumps(str(ROOT / "Model.js"))});
+const parsed = Model.parseState({json.dumps(json.dumps(state.load(config)))});
+process.stdout.write(JSON.stringify(parsed));
+""",
+            ],
+            cwd=ROOT,
+        )
+    )
+    assert [item["episodeId"] for item in restored["queue"]] == ["ok"]
+    assert restored["queue"][0]["position"] == 12
+
+
 if __name__ == "__main__":
     import tempfile
 
     with tempfile.TemporaryDirectory() as directory:
-        test_fake_api_to_persisted_queue(Path(directory))
+        root = Path(directory)
+        test_fake_api_to_persisted_queue(root / "a")
+        (root / "b").mkdir()
+        test_persisted_youtube_queue_entry_is_dropped(root / "b")
     print("E2E tests passed")
