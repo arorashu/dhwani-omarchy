@@ -418,7 +418,9 @@ Panel {
           tooltipText: "Refresh · r"
           foreground: root.foreground
           fontFamily: root.fontFamily
-          enabled: !root.refreshing && root.tab !== 1
+          // Queue has no origin to refresh, but an active search always does:
+          // retry/refresh must stay available when search was entered from Queue.
+          enabled: !root.refreshing && (root.searchActive || root.tab !== 1)
           onClicked: root.refresh()
         }
       }
