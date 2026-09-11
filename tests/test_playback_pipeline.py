@@ -305,7 +305,27 @@ def close_process(pid: int, socket_file: Path) -> None:
         log(f"cleanup: sent SIGKILL to exact pid {pid}")
 
 
-def alive(pid: int) -> bool:
+def process_state(pid: int) -> str | None:
+    """Return the Linux ``/proc/<pid>/stat`` state letter, or None if unknown.
+
+    The ``comm`` field is wrapped in parentheses and may itself contain spaces
+    and parentheses, so the state is taken from the text after the *last* ``)``.
+    ``None`` means ``/proc`` is unavailable or unreadable, not that the process
+    is gone; callers then fall back to a signal probe.
+    """
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    close = stat.rfind(")")
+    if close == -1:
+        return None
+    fields = stat[close + 1 :].split()
+    return fields[0] if fields else None
+
+
+def signal_probe(pid: int) -> bool:
+    """Legacy ``os.kill(pid, 0)`` probe: succeeds for zombies as well."""
     try:
         os.kill(pid, 0)
         return True
@@ -313,6 +333,57 @@ def alive(pid: int) -> bool:
         return False
     except PermissionError:
         return True
+
+
+def alive(pid: int) -> bool:
+    """True only while ``pid`` names a live (not exited) process.
+
+    A container whose PID 1 never reaps orphaned children leaves an exited,
+    detached mpv behind as a zombie; ``os.kill(pid, 0)`` still succeeds for
+    that corpse, which is not evidence of a running player. On Linux the
+    ``/proc`` state is authoritative: only ``Z`` (zombie) and ``X``/``x``
+    (dead) are treated as not alive. Every other state - including stopped or
+    uninterruptible sleep - still counts as a live process, so real running
+    processes are not weakened.
+    """
+    state = process_state(pid)
+    if state is not None:
+        return state not in {"Z", "X", "x"}
+    return signal_probe(pid)
+
+
+def liveness_regression() -> None:
+    """Focused regression: an unreaped exited child is not a live process.
+
+    Forks a short-lived child and deliberately does not reap it, so it lingers
+    as a zombie exactly like a detached mpv under a non-reaping container PID 1.
+    Asserts the child is alive while running, that the zombie is not considered
+    alive even though ``os.kill(pid, 0)`` still succeeds, and that it is not
+    alive after the final reap (which always happens in ``finally``).
+    """
+    if not Path("/proc").is_dir():
+        log("regression: /proc unavailable, skipping Linux zombie liveness check")
+        return
+    pid = os.fork()
+    if pid == 0:  # pragma: no cover - runs in the forked child
+        time.sleep(0.5)
+        os._exit(0)
+    try:
+        check(alive(pid), f"regression: child pid {pid} is live before it exits")
+        deadline = time.monotonic() + PROCESS_EXIT_TIMEOUT
+        while time.monotonic() < deadline and process_state(pid) != "Z":
+            time.sleep(0.02)
+        state = process_state(pid)
+        check(state == "Z", f"regression: child pid {pid} is an unreaped zombie")
+        check(not alive(pid), f"regression: zombie pid {pid} is not alive")
+        check(
+            signal_probe(pid),
+            f"regression: os.kill({pid}, 0) still succeeds for the zombie",
+        )
+    finally:
+        os.waitpid(pid, 0)
+    check(not alive(pid), f"regression: reaped child pid {pid} is not alive")
+    log("regression: live/zombie/reaped liveness distinction holds")
 
 
 def child_main(root: Path) -> int:
@@ -480,8 +551,13 @@ def main() -> int:
         if len(args) != 2:
             raise SystemExit("--child requires a sandbox root")
         return child_main(Path(args[1]))
+    if "--liveness-regression" in args:
+        liveness_regression()
+        print("Liveness regression passed")
+        return 0
     if "--strict" in args:
         os.environ[STRICT_ENV] = "1"
+    liveness_regression()
     return parent_main()
 
 
