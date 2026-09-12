@@ -182,6 +182,51 @@ assert.strictEqual(c.searchError, 'keep');
 c.applyNetworkFailure('trending', -1, 'browse failure');
 assert.strictEqual(c.errorText, 'browse failure');
 
+// An empty/invalid apiBase must fail the pending debounce instead of leaving the
+// permanent "Searching…" spinner up (finding 1b).
+const noBase = makeContext();
+noBase.apiBase = '';
+noBase.beginSearch('episodes', 'alpha', '');
+assert.strictEqual(noBase.searchLoading, true, 'the debounce marks pending immediately');
+noBase.runSearch();
+assert.strictEqual(noBase.searchLoading, false, 'an unusable base must not stay loading');
+assert.strictEqual(noBase.searchRequestedOffset, -1);
+assert.ok(noBase.searchError !== '', 'the failure is visible to the user');
+assert.strictEqual(noBase.fetchQueue.length, 0);
+
+// The exact finding-1 repro no longer throws and issues a request.
+const astral = makeContext();
+astral.beginSearch('episodes', 'a'.repeat(99) + '🙂', '');
+astral.runSearch();
+assert.strictEqual(astral.searchLoading, true);
+assert.strictEqual(astral.fetchQueue.length, 1);
+assert.ok(decodeURIComponent(astral.fetchQueue[0].url.split('q=')[1].split('&')[0]).endsWith('🙂'));
+
+// A query that still cannot be encoded (a lone surrogate) fails retryably rather
+// than aborting the timer handler with searchLoading left true.
+const unencodable = makeContext();
+unencodable.searchQuery = 'a'.repeat(99) + '\uD83D';
+unencodable.searchLoading = true;
+unencodable.runSearch();
+assert.strictEqual(unencodable.searchLoading, false);
+assert.strictEqual(unencodable.searchRequestedOffset, -1);
+assert.ok(unencodable.searchError !== '');
+assert.strictEqual(unencodable.fetchQueue.length, 0);
+
+// pageSearch has the same failure class: it must not stay loading if the next
+// page URL cannot be built.
+const badPage = makeContext();
+badPage.beginSearch('episodes', 'alpha', '');
+badPage.searchTotal = 41;
+badPage.searchNextOffset = 20;
+badPage.searchLoading = false;
+badPage.searchQuery = 'a'.repeat(99) + '\uD83D';
+badPage.pageSearch();
+assert.strictEqual(badPage.searchLoading, false);
+assert.strictEqual(badPage.searchRequestedOffset, -1);
+assert.ok(badPage.searchError !== '');
+assert.strictEqual(badPage.fetchQueue.length, 0);
+
 // Pagination uses the server next offset, is not re-requested while loading, stops at total.
 c.searchLoading = false;
 c.searchRequestedOffset = -1;

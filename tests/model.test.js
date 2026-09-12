@@ -176,6 +176,26 @@ assert.strictEqual(
 assert.strictEqual(Model.titleSearchUrl('https://api-v1.dhwani.io', 'episodes', '   ', 0, ''), '');
 assert.strictEqual(Model.titleSearchUrl('https://api-v1.dhwani.io', 'episodes', 'x'.repeat(150), 0, '').includes('x'.repeat(101)), false);
 
+// The 100-unit cap counts Unicode code points, not UTF-16 units: the old
+// `.slice(0, 100)` split a surrogate pair so encodeURIComponent threw URIError
+// and the panel was left stuck on "Searching…".
+const surrogateQuery = 'a'.repeat(99) + '🙂';
+assert.doesNotThrow(() => Model.titleSearchUrl('https://api-v1.dhwani.io', 'episodes', surrogateQuery, 0, ''));
+const surrogateUrl = Model.titleSearchUrl('https://api-v1.dhwani.io', 'episodes', surrogateQuery, 0, '');
+assert.ok(surrogateUrl.includes(encodeURIComponent(surrogateQuery)));
+assert.strictEqual(Array.from(decodeURIComponent(surrogateUrl.split('q=')[1].split('&')[0])).length, 100);
+// Non-BMP input is bounded at 100 code points, not silently cut to 50 code units.
+const astralQuery = '🙂'.repeat(60);
+assert.strictEqual(
+  decodeURIComponent(Model.titleSearchUrl('https://api-v1.dhwani.io', 'episodes', astralQuery, 0, '').split('q=')[1].split('&')[0]),
+  astralQuery
+);
+const overLongAstral = '🙂'.repeat(100) + 'x';
+assert.strictEqual(
+  decodeURIComponent(Model.titleSearchUrl('https://api-v1.dhwani.io', 'episodes', overLongAstral, 0, '').split('q=')[1].split('&')[0]),
+  '🙂'.repeat(100)
+);
+
 const youtubePrimary = { is_primary: true, source_type: 'YouTube', mime_type: 'video/mp4', path: 'https://www.youtube.com/watch?v=abc' };
 const rssAudio = { source_type: 'RSS', mime_type: 'audio/mpeg', path: 'https://cdn.example.test/audio.mp3' };
 assert.strictEqual(Model.playableUrl([youtubePrimary, rssAudio]), 'https://cdn.example.test/audio.mp3');

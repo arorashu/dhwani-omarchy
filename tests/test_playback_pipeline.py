@@ -46,6 +46,9 @@ TITLE_A = "Episode Alpha · Proof Show"
 # report verbatim (play.py's cap must be a no-op on it).
 TITLE_B = "Episode Beta " + "x" * 212 + " 🙂 · Proof Show"
 assert len(TITLE_B) == 240, len(TITLE_B)
+# Two different HTTP WAVs published with the *same* human label: the exact shape
+# of finding 2, used to prove MPRIS xesam:url is the real identity source.
+TITLE_DUPE = "Episode Duplicate · Proof Show"
 DURATION = 45
 SAMPLE_RATE = 22050
 MPRIS_SCRIPT_CANDIDATES = [
@@ -101,6 +104,14 @@ class RangeHandler(http.server.SimpleHTTPRequestHandler):
     """Loopback file server with byte-range support so mpv can seek."""
 
     def send_head(self):
+        if self.path == "/redirect-episode-a.wav":
+            # mpv (ffmpeg) follows the redirect; MPRIS must still report the URL
+            # the helper was given, which is what Service.playerFor compares.
+            self.send_response(302)
+            self.send_header("Location", "/episode-a.wav")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return None
         path = self.translate_path(self.path)
         if not os.path.isfile(path):
             return super().send_head()
@@ -152,6 +163,138 @@ def serve_audio(root: Path) -> str:
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return f"http://127.0.0.1:{server.server_address[1]}"
+
+
+# Offscreen QML that drives the real Service.qml against the private mpv MPRIS
+# bus: it reads xesam:url/trackTitle from the live player and reports how the
+# product resolves identity. It is not a panel/GUI test.
+QUICKSHELL_IDENTITY_QML = r"""
+import QtQuick
+import QtQuick.Window
+import "__PLUGIN_URL__" as Dhwani
+
+Window {
+  id: root
+  visible: false
+  width: 8
+  height: 8
+  property int ticks: 0
+  property var episodeA: ({ kind: "episode", episodeId: "A", podcastId: "abcdefghijklmnopqrst", title: "Episode Duplicate", podcastTitle: "Proof Show", audioUrl: "__URL_A__", duration: 45, position: 10 })
+  property var episodeB: ({ kind: "episode", episodeId: "B", podcastId: "abcdefghijklmnopqrst", title: "Episode Duplicate", podcastTitle: "Proof Show", audioUrl: "__URL_B__", duration: 45, position: 20 })
+
+  Dhwani.Service { id: service; apiBase: "" }
+
+  function report() {
+    var players = service.mprisPlayers
+    var url = ""
+    if (players.length && players[0].metadata)
+      url = String(players[0].metadata["xesam:url"] || "")
+    var current = service.findCurrentPlayback()
+    console.log("SERVICE_IDENTITY:" + JSON.stringify({
+      players: players.length,
+      title: players.length ? String(players[0].trackTitle || "") : "",
+      url: url,
+      current: current ? current.episode.episodeId : null,
+      playerForA: service.playerFor(root.episodeA) !== null,
+      playerForB: service.playerFor(root.episodeB) !== null,
+    }))
+  }
+
+  function setup() {
+    service.trending = [root.episodeA]
+    service.queue = [root.episodeB]
+    identityTimer.start()
+  }
+
+  Connections {
+    target: service
+    function onStateReadyChanged() { if (service.stateReady) root.setup() }
+  }
+
+  Component.onCompleted: if (service.stateReady) root.setup()
+
+  Timer {
+    id: identityTimer
+    interval: 250
+    repeat: true
+    onTriggered: {
+      root.ticks += 1
+      if (service.mprisPlayers.length && service.findCurrentPlayback()) {
+        root.report()
+        Qt.quit()
+      } else if (root.ticks > 80) {
+        root.report()
+        Qt.quit()
+      }
+    }
+  }
+}
+"""
+
+
+def service_identity_supported() -> bool:
+    return shutil.which("quickshell") is not None
+
+
+def run_service_identity(
+    root: Path, base: str, env: dict, expected_url: str, expected_id: str
+) -> None:
+    """Run the real Service offscreen against the live private mpv MPRIS bus."""
+    qml = (
+        QUICKSHELL_IDENTITY_QML.replace("__PLUGIN_URL__", ROOT.as_uri())
+        .replace("__URL_A__", f"{base}/episode-a.wav")
+        .replace("__URL_B__", f"{base}/episode-b.wav")
+    )
+    config = root / "service-identity.qml"
+    config.write_text(qml, encoding="utf-8")
+    qs_env = env.copy()
+    qs_env.update(
+        {
+            "QT_QPA_PLATFORM": "offscreen",
+            "QT_QUICK_BACKEND": "software",
+            "QT_QPA_PLATFORMTHEME": "",
+        }
+    )
+    for key in ("DISPLAY", "WAYLAND_DISPLAY"):
+        qs_env.pop(key, None)
+    result = subprocess.run(
+        ["quickshell", "-p", str(config)],
+        env=qs_env,
+        cwd=str(root),
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        timeout=40,
+        check=False,
+    )
+    logs = result.stdout + result.stderr
+    line = next((row for row in logs.splitlines() if "SERVICE_IDENTITY:" in row), None)
+    check(
+        line is not None,
+        f"offscreen Service consumed real MPRIS metadata (tail={logs[-300:]!r})",
+    )
+    report = json.loads(line.split("SERVICE_IDENTITY:", 1)[1])
+    check(report["players"] >= 1, "offscreen Service saw the private mpv player")
+    check(
+        report["url"] == expected_url,
+        f"offscreen Service read xesam:url {report['url']!r} == {expected_url!r}",
+    )
+    check(
+        report["title"] == TITLE_DUPE,
+        f"offscreen Service read the shared human label {report['title']!r}",
+    )
+    check(
+        report["current"] == expected_id,
+        f"offscreen Service resolved current episode {report['current']!r} to {expected_id}",
+    )
+    check(
+        report["playerForA"] == (expected_id == "A"),
+        "offscreen Service did not claim episode A by its shared label",
+    )
+    check(
+        report["playerForB"] == (expected_id == "B"),
+        "offscreen Service claimed episode B by its real URL",
+    )
 
 
 def ipc(socket_file: Path, command: list, timeout: float = 5):
@@ -252,6 +395,18 @@ def mpris_properties(name: str) -> dict:
     if isinstance(raw, list):
         raw = raw[0] if raw else {}
     return raw
+
+
+def wait_mpris_metadata(name: str, predicate, timeout: float = 10) -> dict:
+    """Poll the live MPRIS Metadata map until it matches (mpv switches async)."""
+    deadline = time.monotonic() + timeout
+    last = {}
+    while time.monotonic() < deadline:
+        last = mpris_properties(name).get("Metadata") or {}
+        if predicate(last):
+            return last
+        time.sleep(0.1)
+    raise AssertionError(f"MPRIS metadata never matched (last={last!r})")
 
 
 def mpris_seek(name: str, offset_us: int) -> None:
@@ -440,6 +595,10 @@ def child_main(root: Path) -> int:
             metadata = props.get("Metadata") or {}
             log(f"MPRIS metadata (launch): {json.dumps(metadata, default=str)}")
             check(metadata.get("xesam:title") == TITLE_A, "MPRIS xesam:title matches")
+            check(
+                metadata.get("xesam:url") == f"{base}/episode-a.wav",
+                "MPRIS xesam:url identifies the launched track",
+            )
             length_us = int(metadata.get("mpris:length", 0))
             check(
                 abs(length_us / 1_000_000 - DURATION) < 1.5,
@@ -467,6 +626,10 @@ def child_main(root: Path) -> int:
                 metadata.get("xesam:title") == TITLE_B,
                 "MPRIS title followed the switch",
             )
+            check(
+                metadata.get("xesam:url") == f"{base}/episode-b.wav",
+                "MPRIS xesam:url followed the switch",
+            )
             track_id = metadata.get("mpris:trackid")
             check(bool(track_id), "MPRIS exposes mpris:trackid")
             mpris_seek(name, 5_000_000)
@@ -484,6 +647,50 @@ def child_main(root: Path) -> int:
             check(
                 11.5 <= after_set < 15,
                 f"MPRIS SetPosition moved playback-time to {after_set:.2f}s",
+            )
+
+            # Same human label, two different HTTP WAVs: the live metadata URL is
+            # the only thing that distinguishes them across a real mpv reuse.
+            launch(PLAY, f"{base}/episode-a.wav", TITLE_DUPE, env)
+            dupe_a = wait_mpris_metadata(
+                name, lambda m: m.get("xesam:url") == f"{base}/episode-a.wav"
+            )
+            check(
+                dupe_a.get("xesam:title") == TITLE_DUPE,
+                "duplicate A carries the shared human title",
+            )
+            launch(PLAY, f"{base}/episode-b.wav", TITLE_DUPE, env)
+            dupe_b = wait_mpris_metadata(
+                name, lambda m: m.get("xesam:url") == f"{base}/episode-b.wav"
+            )
+            check(
+                dupe_b.get("xesam:title") == TITLE_DUPE,
+                "duplicate B carries the same shared human title",
+            )
+
+            # Real offscreen Service.qml consuming the live private MPRIS bus.
+            if service_identity_supported():
+                run_service_identity(root, base, env, f"{base}/episode-b.wav", "B")
+            else:
+                reason = "quickshell unavailable"
+                if strict_mode():
+                    raise AssertionError(
+                        f"offscreen Service identity check requires quickshell ({reason})"
+                    )
+                log(f"skip: offscreen Service identity check ({reason})")
+
+            # A followed redirect still exposes the requested URL (mpv's path),
+            # so exact URL matching needs no speculative normalization.
+            launch(PLAY, f"{base}/redirect-episode-a.wav", TITLE_DUPE, env)
+            redirected = wait_mpris_metadata(
+                name,
+                lambda m: str(m.get("xesam:url", "")).endswith(
+                    "redirect-episode-a.wav"
+                ),
+            )
+            check(
+                redirected.get("xesam:url") == f"{base}/redirect-episode-a.wav",
+                "a followed redirect still reports the requested URL",
             )
 
         close_process(pid, socket_file)

@@ -86,7 +86,10 @@ function playableUrl(options) {
 
 function titleSearchUrl(baseUrl, kind, query, offset, podcastId) {
   var base = normalizeBaseUrl(baseUrl)
-  var text = clean(query).slice(0, 100)
+  // Cap by Unicode code point, like Model.playbackTitle, so a 100th-unit high
+  // surrogate is never split into a lone surrogate that encodeURIComponent
+  // rejects. Non-BMP input is also no longer under-queried.
+  var text = Array.from(clean(query)).slice(0, 100).join("")
   if (!base || !text) return ""
   var mode = kind === "shows" ? "shows" : "episodes"
   var url = base + "/v1/search/titles?q=" + encodeURIComponent(text) + "&kind=" + mode

@@ -25,7 +25,7 @@ jobs:
           ln -s /tmp/omarchy/shell /tmp/qml-imports/qs
           /usr/lib/qt6/bin/qmllint -I /tmp/qml-imports BarWidget.qml Panel.qml Service.qml
       - name: Test model and service orchestration
-        run: node tests/model.test.js && node tests/service.test.js
+        run: node tests/model.test.js && node tests/service.test.js && node tests/playback-identity.test.js
       - name: Test artwork resolution
         run: node tests/artwork.test.js
       - name: Test search orchestration
