@@ -46,6 +46,25 @@ class CrashGateTests(unittest.TestCase):
         self.assertEqual(calls, 0)
         self.assertIn("inspection_error", report)
 
+    def test_type_invalid_baseline_prevents_command(self):
+        status, report, calls = self.check_run(
+            [TypeError("Expected coredumpctl JSON list")]
+        )
+        self.assertEqual(status, 1)
+        self.assertEqual(calls, 0, "a bad baseline must not let the command run")
+        self.assertIn("inspection_error", report)
+        self.assertTrue(report["passed"] is False)
+
+    def test_type_invalid_final_inspection_fails_after_command(self):
+        status, report, calls = self.check_run(
+            [[], TypeError("Expected coredumpctl JSON list")]
+        )
+        self.assertEqual(status, 1)
+        self.assertEqual(calls, 1, "the command runs before the final inspection fails")
+        self.assertEqual(report["command_exit"], 0)
+        self.assertIn("inspection_error", report)
+        self.assertTrue(report["passed"] is False)
+
     def test_failed_final_inspection_fails_gate(self):
         status, report, calls = self.check_run(
             [[], RuntimeError("journal unavailable")]
@@ -64,6 +83,15 @@ class CrashGateTests(unittest.TestCase):
                 [], 1, "", "Permission denied"
             )
             with self.assertRaises(RuntimeError):
+                crash_gate.snapshot("now")
+
+    def test_snapshot_rejects_malformed_and_type_invalid_json(self):
+        with patch.object(crash_gate.subprocess, "run") as command:
+            command.return_value = subprocess.CompletedProcess([], 0, "{", "")
+            with self.assertRaises(json.JSONDecodeError):
+                crash_gate.snapshot("now")
+            command.return_value = subprocess.CompletedProcess([], 0, "{}", "")
+            with self.assertRaises(TypeError):
                 crash_gate.snapshot("now")
 
 

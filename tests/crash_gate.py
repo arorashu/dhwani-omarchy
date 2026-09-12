@@ -24,7 +24,10 @@ def snapshot(since):
         raise RuntimeError(result.stderr.strip() or "coredumpctl failed")
     rows = json.loads(result.stdout)
     if not isinstance(rows, list):
-        raise ValueError("Expected coredumpctl JSON list")
+        # A non-list JSON value is a type error; json.loads already raises
+        # ValueError (JSONDecodeError) for malformed text. Both stay caught in
+        # run() so a bad coredumpctl reply is reported, never a crash.
+        raise TypeError("Expected coredumpctl JSON list")
     return rows
 
 
@@ -54,7 +57,13 @@ def run(command, output, settle_seconds):
         report["after"] = snapshot(since)
         report["new_crashes"] = new_crashes(report["before"], report["after"])
         status = 0 if report["command_exit"] == 0 and not report["new_crashes"] else 1
-    except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as error:
+    except (
+        OSError,
+        RuntimeError,
+        ValueError,
+        TypeError,
+        subprocess.TimeoutExpired,
+    ) as error:
         report["inspection_error"] = str(error)
     report["passed"] = status == 0
     output.parent.mkdir(parents=True, exist_ok=True)
