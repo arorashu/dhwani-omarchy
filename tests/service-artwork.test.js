@@ -39,14 +39,17 @@ const showDetail = (podcastId, artworkUrl, episodes) => JSON.stringify({
   total_episodes: 80,
 });
 
-test('a cold feed queues one artwork lookup per distinct show', () => {
+test('a cold feed queues one lightweight artwork lookup per distinct show', () => {
   const { service } = makeService();
   const ownArtwork = { ...founders(), artworkUrl: 'https://example.test/episode.png' };
 
   service.ensureArtwork([founders(), { ...founders() }, lex(), ownArtwork]);
   assert.strictEqual(service.fetchQueue.length, 2);
   assert.ok(service.fetchQueue.every(job => job.url.endsWith('?limit=1&offset=0')));
-  assert.ok(Model.showUrl(service.apiBase, FOUNDERS_ID, 0).endsWith('?limit=20&offset=0'));
+  assert.ok(
+    Model.showUrl(service.apiBase, FOUNDERS_ID, 0).endsWith('?limit=20&offset=0'),
+    'normal show pages still request 20 episodes'
+  );
   assert.deepStrictEqual(service.fetchQueue.map(job => job.kind), [
     `artwork:${FOUNDERS_ID}`, `artwork:${LEX_ID}`,
   ]);

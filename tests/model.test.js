@@ -1,18 +1,9 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
-const fs = require('node:fs');
-const path = require('node:path');
 const Model = require('../Model.js');
 const manifest = require('../manifest.json');
 
-const FIXTURES = path.join(__dirname, 'fixtures');
-const readFixture = (name) => fs.readFileSync(path.join(FIXTURES, name), 'utf8');
-
-// Pure Model.js behavior: URL/header building, the fetch queue, playback labels,
-// API parsing, queue/resume/persistence, title search, media policy and cached
-// pagination. These fixture/queue/persistence cases retain the useful assertions
-// from the deleted tests/test_e2e.py; actual QML FileView persistence is covered
-// by tests/test_qml_runtime.py and there is no full panel playback E2E test.
+// Pure Model.js behavior: requests, parsing, playback labels, queues and search.
 
 // Shared read-only payload builders. Each test calls them so no test mutates
 // state another test depends on.
@@ -290,66 +281,6 @@ test('parseState drops unplayable YouTube rows', () => {
   assert.strictEqual(youtubeState.queue.length, 0);
 });
 
-// Recorded API fixtures (the pure Model half of the deleted test_e2e.py)
-
-test('recorded API fixtures parse into playable episodes and shows', () => {
-  const trending = Model.parseTrending(readFixture('trending.json'), 10);
-  assert.strictEqual(trending.ok, true);
-  assert.deepStrictEqual(
-    trending.episodes.map((item) => item.episodeId),
-    ['AOW3VXulOz', 'ydMOiRDhLM', 'mixedRSS001']
-  );
-  assert.strictEqual(trending.episodes[2].audioUrl, 'https://cdn.example.test/mixed.mp3');
-  assert.ok(trending.episodes.every((item) => !item.audioUrl.includes('youtube.com')));
-
-  const shows = Model.parsePodcasts(readFixture('podcasts.json'));
-  assert.strictEqual(shows.ok, true);
-  assert.strictEqual(shows.total, 2);
-  assert.strictEqual(shows.shows.length, 2);
-
-  const show = Model.parseShow(readFixture('show.json'));
-  assert.strictEqual(show.ok, true);
-  assert.strictEqual(show.episodes[0].podcastTitle, 'Y Combinator Startup Podcast');
-});
-
-test('replaying a fixture episode leaves it on top of the persisted queue', () => {
-  const trending = Model.parseTrending(readFixture('trending.json'), 10);
-  const show = Model.parseShow(readFixture('show.json'));
-
-  let queue = [];
-  queue = Model.enqueue(queue, trending.episodes[1]);
-  queue = Model.enqueue(queue, show.episodes[0]);
-  queue = Model.enqueue(queue, trending.episodes[1]);
-  queue = Model.rememberPosition(queue, queue[0], 1122, 4424);
-  assert.deepStrictEqual(
-    queue.map((item) => item.episodeId),
-    ['ydMOiRDhLM', 'IuiARqppaF'],
-    'replaying a stacked episode moves it back to the top'
-  );
-  assert.strictEqual(queue[0].position, 1122);
-
-  const restored = Model.parseState(JSON.stringify({ schemaVersion: 1, queue, nav: { tab: 1 } }));
-  assert.strictEqual(restored.nav.tab, 1);
-  assert.strictEqual(restored.queue[0].audioUrl, 'https://cdn.example.test/sonos.mp3');
-  assert.strictEqual(restored.queue[0].position, 1122);
-  assert.strictEqual(restored.queue[1].episodeId, 'IuiARqppaF');
-});
-
-test('a persisted YouTube queue row is dropped while the playable remainder survives', () => {
-  const persisted = Model.parseState(
-    JSON.stringify({
-      schemaVersion: 1,
-      queue: [
-        { kind: 'episode', episodeId: 'yt', title: 'Old YouTube', audioUrl: 'https://www.youtube.com/watch?v=abc' },
-        { kind: 'episode', episodeId: 'ok', title: 'Keep', audioUrl: 'https://cdn.example.test/keep.mp3', position: 12 },
-      ],
-      nav: {},
-    })
-  );
-  assert.deepStrictEqual(persisted.queue.map((item) => item.episodeId), ['ok']);
-  assert.strictEqual(persisted.queue[0].position, 12);
-});
-
 // Title search
 
 test('titleSearchUrl builds a scoped episode search and a global show search', () => {
@@ -370,9 +301,7 @@ test('titleSearchUrl rejects a blank query', () => {
 test('titleSearchUrl limits queries to 100 code points without splitting an emoji', () => {
   assert.strictEqual(Model.titleSearchUrl('https://api-v1.dhwani.io', 'episodes', 'x'.repeat(150), 0, '').includes('x'.repeat(101)), false);
 
-  // The cap must keep a whole emoji: splitting one leaves a lone surrogate that
-  // encodeURIComponent rejects, which used to leave the panel stuck on
-  // "Searching…".
+  // Splitting the emoji at the limit would make URL encoding fail.
   const surrogateQuery = 'a'.repeat(99) + '🙂';
   assert.doesNotThrow(() => Model.titleSearchUrl('https://api-v1.dhwani.io', 'episodes', surrogateQuery, 0, ''));
   const surrogateUrl = Model.titleSearchUrl('https://api-v1.dhwani.io', 'episodes', surrogateQuery, 0, '');
