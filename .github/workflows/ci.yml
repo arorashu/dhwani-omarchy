@@ -37,8 +37,6 @@ jobs:
         run: node tests/search.test.js
       - name: Test offscreen QML runtime
         run: python tests/test_qml_runtime.py
-      - name: Test crash-accounting gate logic
-        run: python tests/test_crash_gate.py
       - name: Test playback and QML contracts
         run: python tests/test_play.py && python tests/test_qml_contract.py
       - name: Test isolated mpv/MPRIS playback pipeline

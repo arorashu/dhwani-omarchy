@@ -151,7 +151,7 @@ Playback continues when the panel or shell closes, appears through MPRIS, and no
 
 ## Test
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the test commands and local crash-accounting gate.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for test commands and workstation testing precautions.
 
 The offscreen runtime test requires Quickshell, curl, and `dbus-run-session`. It uses a local fixture API and isolated state/D-Bus session to verify image bindings, request deduplication, QML persistence, search-state generation handling, pagination, and scope. It does not test the full panel, desktop integration, or playback. `tests/fixture-flow.test.js` covers the fixture-to-queue data flow, not a running desktop.
 
