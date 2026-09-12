@@ -413,7 +413,9 @@ Item {
     queuedId = Model.episodeKey(item)
     saveState()
     var player = playerFor(item)
-    if (player) {
+    // A different pending load must be replaced, even if old metadata still
+    // matches this item; playbackPlayer is guarded during that transition.
+    if (player && (!pendingSeekEpisodeId || pendingSeekEpisodeId === Model.episodeKey(item))) {
       togglePlaying()
       return
     }

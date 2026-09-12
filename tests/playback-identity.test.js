@@ -166,6 +166,22 @@ assert.deepStrictEqual(c.sought, [20 / 45]);
 assert.strictEqual(c.pendingSeek, 0);
 assert.strictEqual(c.pendingSeekEpisodeId, '');
 
+// Reselecting A while B is pending must issue a new load, not toggle through
+// playbackPlayer (which is intentionally null during the stale-metadata window).
+c = makeContext({
+  trending: [A],
+  queue: [B],
+  mprisPlayers: [mpvPlayer(A.audioUrl)],
+  pendingSeekEpisodeId: 'B',
+  pendingSeek: 20,
+});
+assert.strictEqual(c.currentPlayback, null);
+c.playEpisode(A);
+assert.strictEqual(c.toggles, 0, 'a pending different track must not take the toggle path');
+assert.strictEqual(c.playerProcess.running, true);
+assert.strictEqual(c.playerProcess.command[2], A.audioUrl);
+assert.strictEqual(c.pendingSeekEpisodeId, 'A');
+
 // 8. A confirmed launch that needs no seek also clears the marker (so a paused
 //    zero-position track cannot suppress identity forever).
 c = makeContext({
