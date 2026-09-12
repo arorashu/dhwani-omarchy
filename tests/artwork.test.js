@@ -9,7 +9,7 @@ let saves = 0;
 const service = vm.createContext({
   Model, Date: { now: () => now }, apiBase: 'https://api.example.test', staleAfterMs: 600000,
   shows: [], showsById: {}, artworkRequested: {}, fetchQueue: [], pendingKind: '', errorText: '',
-  queue: [], trending: [], trendingAt: 0, showsAt: 0, showsTotal: 0,
+  queue: [], trending: [], trendingAt: 0, showsAt: 0, showsTotal: 0, showsNextOffset: 0,
   request(kind, url) { service.fetchQueue = Model.scheduleFetch(service.fetchQueue, kind, url); },
   saveSoon() { saves++; },
 });

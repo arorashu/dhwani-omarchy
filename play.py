@@ -10,9 +10,30 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 
+def youtube_url(value: str) -> bool:
+    host = (urlparse(value).hostname or "").lower().rstrip(".")
+    return any(
+        host == suffix or host.endswith("." + suffix)
+        for suffix in ("youtube.com", "youtu.be", "youtube-nocookie.com")
+    )
+
+
 def valid_url(value: str) -> bool:
     parsed = urlparse(value)
-    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+    return (
+        parsed.scheme in {"http", "https"}
+        and bool(parsed.netloc)
+        and not youtube_url(value)
+    )
+
+
+def normalize_title(title: str) -> str:
+    """Collapse whitespace and cap at 240 code points.
+
+    This is the safety cap the model-side ``Model.playbackTitle`` mirrors, so
+    the label Service.qml compares against mpv/MPRIS is the label mpv stores.
+    """
+    return " ".join(title.split())[:240] or "Dhwani"
 
 
 def runtime_dir() -> Path:
@@ -98,6 +119,7 @@ def mpv_command(socket_file: Path, url: str, title: str) -> list[str]:
         "--force-window=no",
         "--no-terminal",
         "--pause=no",
+        "--ytdl=no",
         f"--input-ipc-server={socket_file}",
         f"--force-media-title={title}",
         url,
@@ -141,7 +163,7 @@ def locked(runtime: Path):
 def play(url: str, title: str) -> None:
     if not valid_url(url):
         raise ValueError("Dhwani only opens HTTP audio URLs")
-    title = " ".join(title.split())[:240] or "Dhwani"
+    title = normalize_title(title)
     runtime = runtime_dir()
     ipc = socket_path(runtime)
     with locked(runtime):

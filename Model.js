@@ -12,7 +12,7 @@ function originHeader() {
 }
 
 function userAgent() {
-  return "Dhwani-Omarchy/0.1.0 (+https://github.com/arorashu/dhwani-omarchy)"
+  return "Dhwani-Omarchy/0.2.0 (+https://github.com/arorashu/dhwani-omarchy)"
 }
 
 function curlHeaders() {
@@ -25,6 +25,28 @@ function curlHeaders() {
 
 function pageSize() {
   return 20
+}
+
+function hostOf(url) {
+  var match = /^https?:\/\/([^/?#]+)/i.exec(clean(url))
+  if (!match) return ""
+  return match[1].split("@").pop().split(":")[0].toLowerCase().replace(/\.$/, "")
+}
+
+function isYouTubeUrl(url) {
+  var host = hostOf(url)
+  return /(^|\.)(youtube\.com|youtu\.be|youtube-nocookie\.com)$/.test(host)
+}
+
+function isPlayableAudioUrl(url) {
+  return /^https?:\/\/[^\s]+$/i.test(clean(url)) && !isYouTubeUrl(url)
+}
+
+function isAudioOption(option) {
+  if (!option || typeof option !== "object") return false
+  if (clean(option.source_type).toLowerCase() === "youtube") return false
+  if (clean(option.mime_type || option.mimeType).toLowerCase().indexOf("video/") === 0) return false
+  return !isYouTubeUrl(clean(option.path || option.source_id))
 }
 
 function feedUrl(baseUrl) {
@@ -46,15 +68,36 @@ function showUrl(baseUrl, podcastId, offset, limit) {
 
 function playableUrl(options) {
   if (!Array.isArray(options)) return ""
-  var ordered = []
-  for (var i = 0; i < options.length; i++) if (options[i] && options[i].is_primary === true) ordered.push(options[i])
-  for (var j = 0; j < options.length; j++) if (ordered.indexOf(options[j]) === -1) ordered.push(options[j])
-  for (var k = 0; k < ordered.length; k++) {
-    var option = ordered[k] || {}
-    var url = clean(option.path || option.source_id)
-    if (/^https?:\/\/[^\s]+$/i.test(url)) return url
+  var ranked = []
+  for (var i = 0; i < options.length; i++) {
+    var option = options[i]
+    if (!option) continue
+    var audio = isAudioOption(option)
+    ranked.push({ option: option, rank: (audio ? 2 : 0) + (option.is_primary === true ? 1 : 0), index: i })
+  }
+  ranked.sort(function(a, b) { return b.rank - a.rank || a.index - b.index })
+  for (var k = 0; k < ranked.length; k++) {
+    if (!isAudioOption(ranked[k].option)) continue
+    var url = clean(ranked[k].option.path || ranked[k].option.source_id)
+    if (isPlayableAudioUrl(url)) return url
   }
   return ""
+}
+
+function titleSearchUrl(baseUrl, kind, query, offset, podcastId) {
+  var base = normalizeBaseUrl(baseUrl)
+  var text = clean(query).slice(0, 100)
+  if (!base || !text) return ""
+  var mode = kind === "shows" ? "shows" : "episodes"
+  var url = base + "/v1/search/titles?q=" + encodeURIComponent(text) + "&kind=" + mode
+    + "&limit=" + pageSize() + "&offset=" + Math.max(0, parseInt(offset, 10) || 0)
+  var id = clean(podcastId)
+  if (mode === "episodes" && /^[A-Za-z0-9]{20}$/.test(id)) url += "&podcast_id=" + id
+  return url
+}
+
+function searchKey(kind, query, podcastId) {
+  return (kind === "shows" ? "shows" : "episodes") + "\u0000" + clean(query) + "\u0000" + clean(podcastId)
 }
 
 function decodePayload(raw) {
@@ -79,7 +122,9 @@ function episode(item, fallbackPodcast) {
   var title = clean(item.title)
   if (!audioUrl || !title) return null
   var podcastTitle = clean(item.podcast_title) || clean(fallbackPodcast && fallbackPodcast.title) || "Podcast"
-  var artwork = clean(item.artwork_url) || clean(fallbackPodcast && fallbackPodcast.artwork_url)
+  var episodeArtwork = clean(item.artwork_url)
+  var showArtwork = clean(item.podcast_artwork_url) || clean(fallbackPodcast && fallbackPodcast.artwork_url)
+  var artwork = /^https?:\/\//i.test(episodeArtwork) ? episodeArtwork : showArtwork
   return {
     kind: "episode",
     episodeId: clean(item.episode_id || item.video_id),
@@ -138,6 +183,41 @@ function parseFeed(raw, limit) {
   return { ok: true, error: "", episodes: uniqueEpisodes(source, limit), generatedAt: clean(payload.generated_at) }
 }
 
+function parseTitleSearch(raw) {
+  var empty = { ok: false, error: "", kind: "episodes", query: "", episodes: [], shows: [], total: 0, limit: 0, offset: 0, nextOffset: 0 }
+  var decoded = decodePayload(raw)
+  if (!decoded.ok) return Object.assign(empty, { error: decoded.error })
+  var payload = decoded.payload
+  var kind = payload.kind === "shows" ? "shows" : "episodes"
+  var offset = Math.max(0, parseInt(payload.offset, 10) || 0)
+  var limit = Math.max(0, parseInt(payload.limit, 10) || 0)
+  var source = Array.isArray(payload[kind === "shows" ? "podcasts" : "episodes"]) ? payload[kind === "shows" ? "podcasts" : "episodes"] : []
+  return {
+    ok: true,
+    error: "",
+    kind: kind,
+    query: clean(payload.query),
+    episodes: kind === "shows" ? [] : uniqueEpisodes(source, source.length || 1),
+    shows: kind === "shows" ? parseShows(source) : [],
+    total: Math.max(0, parseInt(payload.total, 10) || 0),
+    limit: limit,
+    offset: offset,
+    nextOffset: offset + (limit || source.length),
+  }
+}
+
+function parseShows(source) {
+  var shows = []
+  var seen = {}
+  for (var i = 0; i < source.length; i++) {
+    var show = showItem(source[i])
+    if (!show || seen[show.podcastId]) continue
+    seen[show.podcastId] = true
+    shows.push(show)
+  }
+  return shows
+}
+
 function parseTrending(raw, limit) {
   var decoded = decodePayload(raw)
   if (!decoded.ok) return { ok: false, error: decoded.error, episodes: [] }
@@ -147,48 +227,62 @@ function parseTrending(raw, limit) {
 
 function parsePodcasts(raw) {
   var decoded = decodePayload(raw)
-  if (!decoded.ok) return { ok: false, error: decoded.error, shows: [], total: 0, offset: 0 }
+  if (!decoded.ok) return { ok: false, error: decoded.error, shows: [], total: 0, limit: 0, offset: 0, nextOffset: 0 }
   var payload = decoded.payload
   var source = Array.isArray(payload.podcasts) ? payload.podcasts : []
-  var shows = []
-  var seen = {}
-  for (var i = 0; i < source.length; i++) {
-    var show = showItem(source[i])
-    if (!show || seen[show.podcastId]) continue
-    seen[show.podcastId] = true
-    shows.push(show)
-  }
+  var shows = parseShows(source)
+  var offset = Math.max(0, parseInt(payload.offset, 10) || 0)
+  var limit = Math.max(0, parseInt(payload.limit, 10) || 0)
   return {
     ok: true,
     error: "",
     shows: shows,
     total: Math.max(shows.length, parseInt(payload.total, 10) || 0),
-    offset: Math.max(0, parseInt(payload.offset, 10) || 0),
+    limit: limit,
+    offset: offset,
+    nextOffset: offset + (limit || source.length),
   }
 }
 
 function parseShow(raw) {
   var decoded = decodePayload(raw)
-  if (!decoded.ok) return { ok: false, error: decoded.error, episodes: [], total: 0, offset: 0, show: null }
+  if (!decoded.ok) return { ok: false, error: decoded.error, episodes: [], total: 0, limit: 0, offset: 0, nextOffset: 0, show: null }
   var payload = decoded.payload
   var podcast = payload.podcast && typeof payload.podcast === "object" ? payload.podcast : {}
   var show = showItem(podcast)
   var source = Array.isArray(payload.episodes) ? payload.episodes : []
+  var offset = Math.max(0, parseInt(payload.offset, 10) || 0)
+  var limit = Math.max(0, parseInt(payload.limit, 10) || 0)
   return {
     ok: true,
     error: "",
     show: show,
     episodes: uniqueEpisodes(source, source.length || 1, podcast),
     total: Math.max(0, parseInt(payload.total_episodes, 10) || 0),
-    offset: Math.max(0, parseInt(payload.offset, 10) || 0),
+    limit: limit,
+    offset: offset,
+    nextOffset: offset + (limit || source.length),
   }
 }
+
+var playbackTitleLimit = 240
+// play.py normalizes the label with Python's str.split(), whose whitespace set
+// differs from JS \s: it includes \x1c-\x1f and \x85 and excludes the BOM.
+// Mirror Python exactly so the Model label equals what mpv/MPRIS reports.
+var playbackWhitespace = /[\t\n\v\f\r\x1c-\x1f \x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+/g
 
 function playbackTitle(item) {
   if (!item) return ""
   var title = clean(item.title)
   var podcast = clean(item.podcastTitle)
-  return title + (podcast ? " · " + podcast : "")
+  var label = (title + (podcast ? " · " + podcast : ""))
+    .replace(playbackWhitespace, " ")
+    .replace(/^ +| +$/g, "")
+  // Cap by Unicode code point, like Python's str slice, so an emoji at the
+  // boundary is never split in half (JS slice would cut a surrogate pair).
+  var points = Array.from(label)
+  if (points.length > playbackTitleLimit) label = points.slice(0, playbackTitleLimit).join("")
+  return label || "Dhwani"
 }
 
 function formatDuration(seconds) {
@@ -223,6 +317,8 @@ function episodeKey(item) {
 function coerceEpisode(item) {
   if (!item || typeof item !== "object") return null
   if (item.audioUrl && item.title && item.kind !== "show") {
+    var audioUrl = clean(item.audioUrl)
+    if (!isPlayableAudioUrl(audioUrl)) return null
     return {
       kind: "episode",
       episodeId: clean(item.episodeId || item.episode_id || item.video_id),
@@ -230,12 +326,35 @@ function coerceEpisode(item) {
       title: clean(item.title),
       podcastTitle: clean(item.podcastTitle || item.podcast_title) || "Podcast",
       artworkUrl: /^https?:\/\//i.test(clean(item.artworkUrl || item.artwork_url)) ? clean(item.artworkUrl || item.artwork_url) : "",
-      audioUrl: clean(item.audioUrl),
+      audioUrl: audioUrl,
       duration: Math.max(0, parseInt(item.duration, 10) || 0),
       position: Math.max(0, Number(item.position) || 0),
     }
   }
   return episode(item)
+}
+
+function isCachedEpisode(item) {
+  if (!item || typeof item !== "object" || item.kind === "show") return false
+  if (!item.audioUrl || !item.title) return false
+  return isPlayableAudioUrl(clean(item.audioUrl))
+}
+
+function filterCachedEpisodes(source) {
+  var input = Array.isArray(source) ? source : []
+  var rows = []
+  for (var i = 0; i < input.length; i++) {
+    // Keep the persisted row object itself: hydration must drop unplayable
+    // (YouTube) rows without losing saved metadata such as position/duration.
+    if (isCachedEpisode(input[i])) rows.push(input[i])
+  }
+  return rows
+}
+
+function cachedNextOffset(record, originalCount) {
+  if (record && record.nextOffset !== undefined && record.nextOffset !== null)
+    return Math.max(0, parseInt(record.nextOffset, 10) || 0)
+  return Math.max(0, parseInt(originalCount, 10) || 0)
 }
 
 function resumeEpisode(queue, item) {
@@ -319,30 +438,44 @@ function rememberPosition(queue, item, position, duration) {
   return next
 }
 
-function scheduleFetch(pending, kind, url) {
+function scheduleFetch(pending, kind, url, token) {
   if (!kind || !url) return Array.isArray(pending) ? pending.slice() : []
   var source = Array.isArray(pending) ? pending : []
   var next = []
-  var dropMore = kind === "shows" || kind === "show"
-  var moreKind = kind === "shows" ? "moreShows" : (kind === "show" ? "moreShow" : "")
+  var dropMore = kind === "shows" ? "moreShows" : (kind === "show" ? "moreShow" : (kind === "search" ? "moreSearch" : ""))
   var replaced = false
   for (var i = 0; i < source.length; i++) {
     var job = source[i]
     if (!job) continue
-    if (dropMore && job.kind === moreKind) continue
+    if (dropMore && job.kind === dropMore) continue
     if (job.kind === kind) {
-      next.push({ kind: kind, url: url })
+      next.push({ kind: kind, url: url, token: token })
       replaced = true
     } else next.push(job)
   }
-  if (!replaced) next.push({ kind: kind, url: url })
+  if (!replaced) next.push({ kind: kind, url: url, token: token })
+  return next
+}
+
+function dropFetches(pending, kinds) {
+  var source = Array.isArray(pending) ? pending : []
+  var drop = Array.isArray(kinds) ? kinds : [kinds]
+  var next = []
+  for (var i = 0; i < source.length; i++) {
+    if (source[i] && drop.indexOf(source[i].kind) === -1) next.push(source[i])
+  }
   return next
 }
 
 function takeFetch(pending) {
   var source = Array.isArray(pending) ? pending : []
   if (!source.length) return { job: null, rest: [] }
-  return { job: source[0], rest: source.slice(1) }
+  var index = 0
+  for (var i = 0; i < source.length; i++) {
+    // Speculative artwork lookups wait behind everything the user asked for.
+    if (source[i] && String(source[i].kind).indexOf("artwork:") !== 0) { index = i; break }
+  }
+  return { job: source[index], rest: source.slice(0, index).concat(source.slice(index + 1)) }
 }
 
 function isFresh(fetchedAt, now, ttlMs) {
@@ -397,11 +530,17 @@ if (typeof module !== "undefined") {
     showUrl: showUrl,
     curlHeaders: curlHeaders,
     playableUrl: playableUrl,
+    isPlayableAudioUrl: isPlayableAudioUrl,
+    isYouTubeUrl: isYouTubeUrl,
+    isAudioOption: isAudioOption,
+    titleSearchUrl: titleSearchUrl,
+    searchKey: searchKey,
     playbackTitle: playbackTitle,
     parseFeed: parseFeed,
     parseTrending: parseTrending,
     parsePodcasts: parsePodcasts,
     parseShow: parseShow,
+    parseTitleSearch: parseTitleSearch,
     formatDuration: formatDuration,
     formatPosition: formatPosition,
     playbackProgress: playbackProgress,
@@ -413,11 +552,15 @@ if (typeof module !== "undefined") {
     mergeQueue: mergeQueue,
     rememberPosition: rememberPosition,
     scheduleFetch: scheduleFetch,
+    dropFetches: dropFetches,
     takeFetch: takeFetch,
     isFresh: isFresh,
     parseState: parseState,
     emptyState: emptyState,
     coerceEpisode: coerceEpisode,
+    isCachedEpisode: isCachedEpisode,
+    filterCachedEpisodes: filterCachedEpisodes,
+    cachedNextOffset: cachedNextOffset,
     pageSize: pageSize,
   }
 }

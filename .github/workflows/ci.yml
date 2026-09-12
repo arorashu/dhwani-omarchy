@@ -13,7 +13,7 @@ jobs:
     container: archlinux:latest
     steps:
       - name: Install test tools
-        run: pacman -Syu --noconfirm git jq nodejs python qt6-declarative quickshell ruff curl dbus
+        run: pacman -Syu --noconfirm git jq nodejs python qt6-declarative quickshell ruff curl dbus systemd mpv mpv-mpris
       - uses: actions/checkout@v4
       - name: Fetch Omarchy 4.0.2 contracts
         run: git clone --depth 1 --branch v4.0.2 https://github.com/basecamp/omarchy.git /tmp/omarchy
@@ -28,9 +28,15 @@ jobs:
         run: node tests/model.test.js && node tests/service.test.js
       - name: Test artwork resolution
         run: node tests/artwork.test.js
+      - name: Test search orchestration
+        run: node tests/search.test.js
       - name: Test offscreen QML runtime
         run: python tests/test_qml_runtime.py
       - name: Test playback and state
         run: python tests/test_play.py && python tests/test_state.py && python tests/test_e2e.py && python tests/test_qml_contract.py
+      - name: Test isolated mpv/MPRIS playback pipeline
+        run: python tests/test_playback_pipeline.py --strict
       - name: Lint Python
-        run: ruff check play.py state.py tests && ruff format --check play.py state.py tests
+        run: |
+          ruff check --extend-select I,PLW1510 play.py state.py tests
+          ruff format --check play.py state.py tests

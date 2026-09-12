@@ -16,6 +16,7 @@ Item {
   property var showsById: ({})
   property var artworkRequested: ({})
   property int showsTotal: 0
+  property int showsNextOffset: 0
   property double trendingAt: 0
   property double showsAt: 0
   property string queuedId: ""
@@ -31,6 +32,18 @@ Item {
   property bool hydrating: false
   property string errorText: ""
   property bool refreshing: false
+  property string searchQuery: ""
+  property string searchKind: "episodes"
+  property string searchPodcastId: ""
+  property var searchEpisodes: []
+  property var searchShows: []
+  property int searchTotal: 0
+  property int searchNextOffset: 0
+  property int searchRequestedOffset: -1
+  property bool searchLoading: false
+  property string searchError: ""
+  property int searchGeneration: 0
+  property int pendingGeneration: -1
 
   readonly property var mprisPlayers: Mpris.players ? Mpris.players.values : []
   readonly property var currentPlayback: findCurrentPlayback()
@@ -51,9 +64,9 @@ Item {
     return ["curl", "-fsSL", "--max-time", "12", "--max-filesize", "1048576", "--proto", "=http,https", "--proto-redir", "=http,https"].concat(Model.curlHeaders()).concat(["--", url])
   }
 
-  function request(kind, url) {
+  function request(kind, url, token) {
     if (!kind || !url) return
-    fetchQueue = Model.scheduleFetch(fetchQueue, kind, url)
+    fetchQueue = Model.scheduleFetch(fetchQueue, kind, url, token)
     kickFetch()
   }
 
@@ -63,6 +76,8 @@ Item {
     if (!taken.job) return
     fetchQueue = taken.rest
     pendingKind = taken.job.kind
+    pendingGeneration = Number(taken.job.token)
+    if (isNaN(pendingGeneration)) pendingGeneration = -1
     refreshing = true
     errorText = ""
     netProcess.command = curlCommand(taken.job.url)
@@ -89,18 +104,94 @@ Item {
   }
 
   function pageShows() {
-    if (!apiBase || !shows.length || shows.length >= showsTotal) return
-    request("moreShows", Model.podcastsUrl(apiBase, shows.length))
+    if (!apiBase || showsNextOffset <= 0 || showsNextOffset >= showsTotal) return
+    request("moreShows", Model.podcastsUrl(apiBase, showsNextOffset))
   }
 
   function pageShow(podcastId) {
     var cached = showsById[podcastId]
-    if (!apiBase || !cached || !cached.episodes || cached.episodes.length >= cached.total) return
-    request("moreShow", Model.showUrl(apiBase, podcastId, cached.episodes.length))
+    if (!apiBase || !cached) return
+    var next = showNextOffset(cached)
+    if (next <= 0 || next >= cached.total) return
+    request("moreShow", Model.showUrl(apiBase, podcastId, next))
+  }
+
+  function showNextOffset(record) {
+    if (!record) return 0
+    if (record.nextOffset !== undefined && record.nextOffset !== null) return Math.max(0, parseInt(record.nextOffset, 10) || 0)
+    return record.episodes ? record.episodes.length : 0
   }
 
   function showRecord(podcastId) {
-    return (showsById && podcastId && showsById[podcastId]) ? showsById[podcastId] : { episodes: [], total: 0, fetchedAt: 0, title: "" }
+    return (showsById && podcastId && showsById[podcastId]) ? showsById[podcastId] : { episodes: [], total: 0, nextOffset: 0, fetchedAt: 0, title: "" }
+  }
+
+  function beginSearch(kind, query, podcastId) {
+    searchGeneration = searchGeneration + 1
+    searchKind = kind === "shows" ? "shows" : "episodes"
+    searchQuery = String(query || "").trim()
+    searchPodcastId = searchKind === "episodes" ? String(podcastId || "") : ""
+    searchError = ""
+    searchRequestedOffset = -1
+    fetchQueue = Model.dropFetches(fetchQueue, ["search", "moreSearch"])
+    searchEpisodes = []
+    searchShows = []
+    searchTotal = 0
+    searchNextOffset = 0
+    if (!searchQuery) {
+      searchTimer.stop()
+      searchLoading = false
+      return
+    }
+    // Invalidate the previous query's rows before the debounce fires; the pending
+    // state must not advertise results the user can still play.
+    searchLoading = true
+    searchTimer.restart()
+  }
+
+  function applyNetworkFailure(kind, generation, message) {
+    if (kind === "search" || kind === "moreSearch") {
+      if (generation !== searchGeneration) return
+      searchLoading = false
+      searchRequestedOffset = -1
+      searchError = message
+      return
+    }
+    errorText = message
+  }
+
+  function runSearch() {
+    if (!apiBase || !searchQuery) return
+    var url = Model.titleSearchUrl(apiBase, searchKind, searchQuery, 0, searchPodcastId)
+    if (!url) return
+    searchLoading = true
+    searchRequestedOffset = 0
+    searchNextOffset = 0
+    request("search", url, searchGeneration)
+  }
+
+  function pageSearch() {
+    if (!apiBase || !searchQuery || searchLoading) return
+    if (searchNextOffset <= 0 || searchNextOffset >= searchTotal) return
+    if (searchRequestedOffset === searchNextOffset) return
+    searchLoading = true
+    searchRequestedOffset = searchNextOffset
+    request("moreSearch", Model.titleSearchUrl(apiBase, searchKind, searchQuery, searchNextOffset, searchPodcastId), searchGeneration)
+  }
+
+  function clearSearch() {
+    searchTimer.stop()
+    searchGeneration = searchGeneration + 1
+    searchQuery = ""
+    searchPodcastId = ""
+    searchEpisodes = []
+    searchShows = []
+    searchTotal = 0
+    searchNextOffset = 0
+    searchRequestedOffset = -1
+    searchLoading = false
+    searchError = ""
+    fetchQueue = Model.dropFetches(fetchQueue, ["search", "moreSearch"])
   }
 
   function putShow(podcastId, record) {
@@ -111,11 +202,15 @@ Item {
   }
 
   function applyNetwork(raw) {
+    var kind = pendingKind
+    var searching = kind === "search" || kind === "moreSearch"
+    // Reject a stale generation before any size/parse branch can touch current state.
+    if (searching && pendingGeneration !== searchGeneration) return
     if (String(raw || "").length > 1048576) {
-      errorText = "Dhwani returned too much data"
+      if (searching) applyNetworkFailure(kind, pendingGeneration, "Dhwani returned too much data")
+      else errorText = "Dhwani returned too much data"
       return
     }
-    var kind = pendingKind
     if (kind === "trending") {
       var feed = Model.parseTrending(raw, episodeLimit)
       if (!feed.ok) { errorText = feed.error; return }
@@ -126,7 +221,24 @@ Item {
       if (!list.ok) { errorText = list.error; return }
       shows = kind === "moreShows" ? Model.mergeShows(shows, list.shows) : list.shows
       showsTotal = list.total
+      showsNextOffset = list.nextOffset
       showsAt = Date.now()
+    } else if (kind === "search" || kind === "moreSearch") {
+      var found = Model.parseTitleSearch(raw)
+      if (!found.ok) { applyNetworkFailure(kind, pendingGeneration, found.error); return }
+      searchLoading = false
+      searchError = ""
+      searchRequestedOffset = -1
+      if (found.kind === "shows") {
+        searchShows = kind === "moreSearch" ? Model.mergeShows(searchShows, found.shows) : found.shows
+        searchEpisodes = []
+      } else {
+        searchEpisodes = kind === "moreSearch" ? Model.mergeEpisodes(searchEpisodes, found.episodes) : found.episodes
+        searchShows = []
+      }
+      searchTotal = found.total
+      searchNextOffset = found.nextOffset
+      return
     } else if (kind === "show" || kind === "moreShow" || kind.indexOf("artwork:") === 0) {
       var detail = Model.parseShow(raw)
       if (!detail.ok) { errorText = detail.error; return }
@@ -144,6 +256,7 @@ Item {
           artworkUrl: detail.show.artworkUrl,
           episodes: kind === "moreShow" ? Model.mergeEpisodes(previous.episodes, detail.episodes) : detail.episodes,
           total: detail.total,
+          nextOffset: detail.nextOffset,
           fetchedAt: Date.now()
         })
       }
@@ -246,7 +359,7 @@ Item {
   }
 
   function playEpisode(item) {
-    if (!item || item.kind === "show" || !item.audioUrl || playerProcess.running) return
+    if (!item || item.kind === "show" || !Model.isPlayableAudioUrl(item.audioUrl) || playerProcess.running) return
     rememberPlayback()
     item = Model.resumeEpisode(queue, item)
     if (!item) return
@@ -281,15 +394,35 @@ Item {
     if (stateReady) return
     var cache = state.cache || {}
     if (cache.trending && cache.trending.episodes) {
-      trending = cache.trending.episodes
+      // Cached rows predate the current playback policy: drop unplayable
+      // (YouTube) rows while keeping the saved row objects and metadata.
+      trending = Model.filterCachedEpisodes(cache.trending.episodes)
       trendingAt = Number(cache.trending.fetchedAt) || 0
     }
     if (cache.shows && cache.shows.items) {
       shows = cache.shows.items
       showsTotal = Number(cache.shows.total) || shows.length
+      // Raw list offset, so pagination survives a restart; legacy states fall
+      // back to the stored show count (before any row is filtered).
+      showsNextOffset = Model.cachedNextOffset(cache.shows, shows.length)
       showsAt = Number(cache.shows.fetchedAt) || 0
     }
-    if (cache.showsById && typeof cache.showsById === "object") showsById = cache.showsById
+    if (cache.showsById && typeof cache.showsById === "object") {
+      var records = {}
+      for (var id in cache.showsById) {
+        if (!Object.prototype.hasOwnProperty.call(cache.showsById, id)) continue
+        var record = cache.showsById[id]
+        if (!record || typeof record !== "object") continue
+        var loaded = Array.isArray(record.episodes) ? record.episodes.length : 0
+        var copy = {}
+        for (var field in record)
+          if (Object.prototype.hasOwnProperty.call(record, field)) copy[field] = record[field]
+        copy.episodes = Model.filterCachedEpisodes(record.episodes)
+        copy.nextOffset = Model.cachedNextOffset(record, loaded)
+        records[id] = copy
+      }
+      showsById = records
+    }
   }
 
   function dumpState() {
@@ -299,7 +432,7 @@ Item {
       nav: { tab: 0, trendingIndex: 0, queueIndex: 0, showsIndex: 0, showIndex: 0, openShowId: "", openShowTitle: "" },
       cache: {
         trending: { fetchedAt: trendingAt, episodes: trending },
-        shows: { fetchedAt: showsAt, items: shows, total: showsTotal },
+        shows: { fetchedAt: showsAt, items: shows, total: showsTotal, nextOffset: showsNextOffset },
         showsById: showsById
       }
     })
@@ -324,9 +457,12 @@ Item {
     stderr: StdioCollector { id: netStderr; waitForEnd: true }
     onExited: function(exitCode) {
       root.refreshing = false
+      var kind = root.pendingKind
+      var generation = root.pendingGeneration
       if (exitCode === 0) root.applyNetwork(netStdout.text)
-      else root.errorText = (netStderr.text || "").replace(/\s+/g, " ").trim() || "Dhwani is out of reach"
+      else root.applyNetworkFailure(kind, generation, (netStderr.text || "").replace(/\s+/g, " ").trim() || "Dhwani is out of reach")
       root.pendingKind = ""
+      root.pendingGeneration = -1
       root.kickFetch()
     }
   }
@@ -376,6 +512,13 @@ Item {
     interval: 250
     repeat: false
     onTriggered: root.saveState()
+  }
+
+  Timer {
+    id: searchTimer
+    interval: 250
+    repeat: false
+    onTriggered: root.runSearch()
   }
 
   Timer {
