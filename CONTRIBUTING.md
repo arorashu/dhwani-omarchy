@@ -12,15 +12,17 @@ ln -s /usr/share/omarchy/shell "$imports/qs"
 rm -rf "$imports"
 node tests/model.test.js
 node tests/service.test.js
+node tests/playback-identity.test.js
 node tests/artwork.test.js
 node tests/search.test.js
 node tests/fixture-flow.test.js
 node tests/panel.test.js
 python3 tests/test_qml_runtime.py
 python3 tests/test_play.py
+python3 tests/test_crash_gate.py
 python3 tests/test_qml_contract.py
 python3 tests/test_playback_pipeline.py
-ruff check play.py tests
+ruff check --extend-select I,PLW1510 play.py tests
 ruff format --check play.py tests
 ```
 

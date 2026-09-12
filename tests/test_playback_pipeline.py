@@ -29,6 +29,7 @@ import threading
 import time
 import wave
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 PLAY = ROOT / "play.py"
@@ -243,6 +244,7 @@ def run_service_identity(
         check=False,
     )
     logs = result.stdout + result.stderr
+    check(result.returncode == 0, f"offscreen Service exited cleanly: {logs[-300:]}")
     line = next((row for row in logs.splitlines() if "SERVICE_IDENTITY:" in row), None)
     check(
         line is not None,
@@ -430,13 +432,10 @@ def process_state(pid: int) -> str | None:
     """
     try:
         stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8", errors="replace")
-    except OSError:
+    except (FileNotFoundError, ProcessLookupError):
         return None
-    close = stat.rfind(")")
-    if close == -1:
-        return None
-    fields = stat[close + 1 :].split()
-    return fields[0] if fields else None
+    # Other read/parse failures must fail the proof, not claim cleanup succeeded.
+    return stat.rsplit(")", 1)[1].split()[0]
 
 
 def alive(pid: int) -> bool:
@@ -456,6 +455,13 @@ def liveness_regression() -> None:
     Forks a short-lived child and deliberately does not reap it, exactly like a
     detached mpv under a non-reaping container PID 1.
     """
+    with patch.object(Path, "read_text", side_effect=PermissionError):
+        try:
+            alive(os.getpid())
+        except PermissionError:
+            pass
+        else:
+            raise AssertionError("unreadable /proc must not be treated as exited")
     pid = os.fork()
     if pid == 0:  # pragma: no cover - runs in the forked child
         time.sleep(0.5)

@@ -27,7 +27,10 @@ function panelContext(overrides) {
       calls: [],
       configure() {},
       ensureTrending(force) { context.listen.calls.push(['ensureTrending', force]); },
-      ensureShows(force) { context.listen.calls.push(['ensureShows', force]); },
+      ensureShows(force) {
+        context.order.push('ensureShows');
+        context.listen.calls.push(['ensureShows', force]);
+      },
       ensureShow(id, force) { context.listen.calls.push(['ensureShow', id, force]); },
       ensureArtwork() {},
       beginSearch(kind, text, scope) { context.listen.calls.push(['beginSearch', kind, text, scope]); },
@@ -81,7 +84,7 @@ assert.deepStrictEqual(c.listen.calls, [['ensureShow', 'p1', true]]);
 c = panelContext({ tab: 2, openShow: { podcastId: 'p1' } });
 c.back();
 assert.strictEqual(c.openShow, null);
-assert.deepStrictEqual(c.order, ['saveCurrentIndex', 'restoreIndex']);
+assert.deepStrictEqual(c.order, ['saveCurrentIndex', 'restoreIndex', 'ensureShows']);
 assert.deepStrictEqual(c.listen.calls, [['ensureShows', false]]);
 
 c = panelContext({ tab: 2, openShow: null });
