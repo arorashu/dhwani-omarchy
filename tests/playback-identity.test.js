@@ -1,6 +1,6 @@
 const assert = require('assert');
 const Model = require('../Model.js');
-const { qmlFunctions } = require('./qml-vm');
+const { qmlFunctions } = require('./qml-source-harness');
 
 // Playback identity in Service.qml: duplicate-titled episodes must resolve by the
 // real MPRIS xesam:url AND the expected human label. These are the real product

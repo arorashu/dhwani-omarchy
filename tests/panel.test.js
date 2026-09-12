@@ -1,7 +1,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const vm = require('vm');
-const { qmlFunctions, qmlBinding } = require('./qml-vm');
+const { qmlFunctions, qmlBinding } = require('./qml-source-harness');
 
 // Panel.qml orchestration in a VM with mocked panel/listen state. Not a live
 // QML or full-panel test; it exercises the real product functions and binding.

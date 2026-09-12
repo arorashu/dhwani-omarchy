@@ -1,6 +1,6 @@
 const assert = require('assert');
 const Model = require('../Model.js');
-const { qmlFunctions } = require('./qml-vm');
+const { qmlFunctions } = require('./qml-source-harness');
 
 // Search orchestration in Service.qml: generation-stamped responses, immediate
 // result invalidation, raw offsets, debounce, failure retryability, and obsolete-job

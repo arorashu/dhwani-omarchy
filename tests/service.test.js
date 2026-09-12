@@ -1,6 +1,6 @@
 const assert = require('assert');
 const Model = require('../Model.js');
-const { qmlFunctions } = require('./qml-vm');
+const { qmlFunctions } = require('./qml-source-harness');
 
 const SERVICE = require.resolve('../Service.qml');
 

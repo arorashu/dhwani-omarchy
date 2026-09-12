@@ -153,7 +153,9 @@ Playback continues when the panel or shell closes, appears through MPRIS, and no
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for test commands and workstation testing precautions.
 
-The offscreen runtime test requires Quickshell, curl, and `dbus-run-session`. It uses a local fixture API and isolated state/D-Bus session to verify image bindings, request deduplication, QML persistence, search-state generation handling, pagination, and scope. It does not test the full panel, desktop integration, or playback. `tests/fixture-flow.test.js` covers the fixture-to-queue data flow, not a running desktop.
+The Node suites run with `node --test tests/*.test.js` and use only built-ins. They cover pure `Model.js` behavior (URLs and headers, the fetch queue, playback labels, API parsing, queue/resume/persistence, title search, media policy, cached pagination), the Service/Panel JavaScript extracted from QML, and Service artwork lookup/cache orchestration with mocked surroundings. The Model suites retain the useful fixture/queue/persistence assertions from the deleted `test_e2e.py`; the actual QML `FileView` persistence stays covered by `tests/test_qml_runtime.py`. There is no full panel-driven playback end-to-end test.
+
+The offscreen runtime test requires Quickshell, curl, and `dbus-run-session`. It uses a local fixture API and isolated state/D-Bus session to verify image bindings, request deduplication, QML persistence, search-state generation handling, pagination, and scope. It does not test the full panel, desktop integration, or playback.
 
 The isolated playback proof (`test_playback_pipeline.py`) is always strict: it needs `mpv`, `mpv-mpris`, `dbus-run-session`, systemd `busctl`, and `quickshell`, and fails rather than skipping when one is missing. It drives a private sandboxed mpv/MPRIS bus and an offscreen `Service.qml`; it never touches the user's own player or session.
 
