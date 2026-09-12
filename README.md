@@ -49,7 +49,7 @@ To install a local checkout instead:
 ```bash
 omarchy plugin validate .
 mkdir -p ~/.config/omarchy/plugins/io.dhwani.listen
-cp -a manifest.json BarWidget.qml Panel.qml Service.qml Model.js play.py state.py \
+cp -a manifest.json BarWidget.qml Panel.qml Service.qml Model.js play.py \
   ~/.config/omarchy/plugins/io.dhwani.listen/
 omarchy-shell shell rescanPlugins
 omarchy plugin enable io.dhwani.listen --section center
@@ -151,25 +151,13 @@ Playback continues when the panel or shell closes, appears through MPRIS, and no
 
 ## Test
 
-```bash
-omarchy plugin validate .
-imports=$(mktemp -d)
-ln -s /usr/share/omarchy/shell "$imports/qs"
-/usr/lib/qt6/bin/qmllint -I "$imports" BarWidget.qml Panel.qml
-rm -rf "$imports"
-node tests/model.test.js
-node tests/service.test.js
-node tests/artwork.test.js
-node tests/search.test.js
-python3 tests/test_qml_runtime.py
-python3 tests/test_play.py
-python3 tests/test_state.py
-python3 tests/test_e2e.py
-ruff check play.py state.py tests
-ruff format --check play.py state.py tests
-```
+See [CONTRIBUTING.md](CONTRIBUTING.md) for test commands and workstation testing precautions.
 
-The offscreen runtime test requires Quickshell, curl, and `dbus-run-session`. It uses a local fixture API and isolated state/D-Bus session to verify image bindings, request deduplication, QML persistence, search-state generation handling, pagination, and scope. It does not test the full panel, desktop integration, or playback. `test_e2e.py` covers the fixture-to-queue data flow, not a running desktop.
+The Node suites use only built-ins. Tests that extract JavaScript from QML run it with mocks; they are not QML runtime tests. `model-queue-state.test.js` retains the pure Model checks formerly mislabeled as `test_e2e.py`.
+
+The offscreen runtime test requires Quickshell, curl, and `dbus-run-session`. It uses a local fixture API and isolated state/D-Bus session to verify image bindings, request deduplication, QML persistence, search-state generation handling, pagination, and scope. It does not test the full panel, desktop integration, or playback. There is currently no full panel-driven playback E2E test.
+
+The isolated playback proof (`test_playback_pipeline.py`) is always strict: it needs `mpv`, `mpv-mpris`, `dbus-run-session`, systemd `busctl`, and `quickshell`, and fails rather than skipping when one is missing. It drives a private sandboxed mpv/MPRIS bus and an offscreen `Service.qml`; it never touches the user's own player or session.
 
 ## Controls
 

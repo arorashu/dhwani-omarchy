@@ -161,9 +161,22 @@ Item {
   }
 
   function runSearch() {
-    if (!apiBase || !searchQuery) return
-    var url = Model.titleSearchUrl(apiBase, searchKind, searchQuery, 0, searchPodcastId)
-    if (!url) return
+    var url = ""
+    if (apiBase && searchQuery) {
+      try {
+        url = Model.titleSearchUrl(apiBase, searchKind, searchQuery, 0, searchPodcastId)
+      } catch (e) {
+        url = ""
+      }
+    }
+    if (!url) {
+      // A missing base or a query that cannot be encoded must fail the pending
+      // search instead of leaving the debounce's "Searching…" state up forever.
+      searchLoading = false
+      searchRequestedOffset = -1
+      searchError = searchQuery ? (apiBase ? "Dhwani could not search that query" : "Dhwani search is unavailable") : ""
+      return
+    }
     searchLoading = true
     searchRequestedOffset = 0
     searchNextOffset = 0
@@ -174,9 +187,21 @@ Item {
     if (!apiBase || !searchQuery || searchLoading) return
     if (searchNextOffset <= 0 || searchNextOffset >= searchTotal) return
     if (searchRequestedOffset === searchNextOffset) return
+    var url = ""
+    try {
+      url = Model.titleSearchUrl(apiBase, searchKind, searchQuery, searchNextOffset, searchPodcastId)
+    } catch (e) {
+      url = ""
+    }
+    if (!url) {
+      searchLoading = false
+      searchRequestedOffset = -1
+      searchError = "Dhwani could not search that query"
+      return
+    }
     searchLoading = true
     searchRequestedOffset = searchNextOffset
-    request("moreSearch", Model.titleSearchUrl(apiBase, searchKind, searchQuery, searchNextOffset, searchPodcastId), searchGeneration)
+    request("moreSearch", url, searchGeneration)
   }
 
   function clearSearch() {
@@ -287,13 +312,29 @@ Item {
     }
   }
 
+  function mpvPlayerMedia(player) {
+    if (!player) return null
+    var app = String(player.identity || player.desktopEntry || "").toLowerCase()
+    if (app !== "mpv") return null
+    var map = player.metadata && typeof player.metadata === "object" ? player.metadata : null
+    var url = map && map["xesam:url"] !== undefined && map["xesam:url"] !== null ? String(map["xesam:url"]) : ""
+    return { player: player, url: url, label: String(player.trackTitle || "") }
+  }
+
+  // Identify the mpv player actually playing `item`. MPRIS xesam:url (mpv's
+  // loaded path) is the identity source, and it must agree with the expected
+  // human label: the loaded catalog pages are incomplete, so local title
+  // uniqueness is not proof, and requiring both also ignores mixed old/new
+  // metadata and unrelated mpv instances. Without usable metadata no row is
+  // claimed (rather than guessing from a title).
   function playerFor(item) {
     if (!item || item.kind === "show") return null
+    var url = String(item.audioUrl || "")
+    if (!url) return null
     var label = Model.playbackTitle(item)
     for (var i = 0; i < mprisPlayers.length; i++) {
-      var player = mprisPlayers[i]
-      var app = String(player.identity || player.desktopEntry || "").toLowerCase()
-      if (app === "mpv" && String(player.trackTitle || "") === label) return player
+      var media = mpvPlayerMedia(mprisPlayers[i])
+      if (media && media.url === url && media.label === label) return media.player
     }
     return null
   }
@@ -311,7 +352,12 @@ Item {
     var items = allEpisodes()
     for (var i = 0; i < items.length; i++) {
       var player = playerFor(items[i])
-      if (player) return { episode: items[i], player: player }
+      if (!player) continue
+      // A just-launched track can briefly leave the previous track's metadata
+      // on the bus. Never report the old row (and never save its position) for
+      // the incoming episode while that transition is unconfirmed.
+      if (pendingSeekEpisodeId && Model.episodeKey(items[i]) !== pendingSeekEpisodeId) return null
+      return { episode: items[i], player: player }
     }
     return null
   }
@@ -367,7 +413,9 @@ Item {
     queuedId = Model.episodeKey(item)
     saveState()
     var player = playerFor(item)
-    if (player) {
+    // A different pending load must be replaced, even if old metadata still
+    // matches this item; playbackPlayer is guarded during that transition.
+    if (player && (!pendingSeekEpisodeId || pendingSeekEpisodeId === Model.episodeKey(item))) {
       togglePlaying()
       return
     }
@@ -380,9 +428,24 @@ Item {
   }
 
   function resumePendingPlayback() {
-    if (!currentPlayback || pendingSeek <= 0 || playbackLength <= 0) return
+    if (!currentPlayback || !pendingSeekEpisodeId) return
     if (Model.episodeKey(currentPlayback.episode) !== pendingSeekEpisodeId) return
-    if (!seekTo(pendingSeek / playbackLength)) return
+    if (pendingSeek > 0) {
+      if (playbackLength <= 0) return
+      if (!seekTo(pendingSeek / playbackLength)) return
+    }
+    // The requested episode is confirmed as the current one: clear the
+    // transition marker so later external playback resolves normally.
+    pendingSeek = 0
+    pendingSeekEpisodeId = ""
+  }
+
+  function playbackHelperExited(exitCode, stderrText) {
+    launchingEpisodeId = ""
+    if (exitCode === 0) return
+    errorText = String(stderrText || "").replace(/\s+/g, " ").trim() || "The episode could not start"
+    // A failed launch must not leave the transition guard suppressing the
+    // still-valid previous playback forever.
     pendingSeek = 0
     pendingSeekEpisodeId = ""
   }
@@ -472,8 +535,7 @@ Item {
     command: []
     stderr: StdioCollector { id: playerStderr; waitForEnd: true }
     onExited: function(exitCode) {
-      root.launchingEpisodeId = ""
-      if (exitCode !== 0) root.errorText = (playerStderr.text || "").replace(/\s+/g, " ").trim() || "The episode could not start"
+      root.playbackHelperExited(exitCode, playerStderr.text)
     }
   }
 
@@ -519,6 +581,15 @@ Item {
     interval: 250
     repeat: false
     onTriggered: root.runSearch()
+  }
+
+  Timer {
+    // Confirming a launch must not depend on the player already reporting
+    // "playing": a paused, zero-position track still has to clear the marker.
+    interval: 250
+    repeat: true
+    running: root.pendingSeekEpisodeId !== ""
+    onTriggered: root.resumePendingPlayback()
   }
 
   Timer {

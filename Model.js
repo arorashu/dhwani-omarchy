@@ -86,7 +86,9 @@ function playableUrl(options) {
 
 function titleSearchUrl(baseUrl, kind, query, offset, podcastId) {
   var base = normalizeBaseUrl(baseUrl)
-  var text = clean(query).slice(0, 100)
+  // Limit searches to 100 Unicode code points without splitting emoji.
+  // Splitting an emoji would make URL encoding fail.
+  var text = Array.from(clean(query)).slice(0, 100).join("")
   if (!base || !text) return ""
   var mode = kind === "shows" ? "shows" : "episodes"
   var url = base + "/v1/search/titles?q=" + encodeURIComponent(text) + "&kind=" + mode
@@ -278,8 +280,8 @@ function playbackTitle(item) {
   var label = (title + (podcast ? " · " + podcast : ""))
     .replace(playbackWhitespace, " ")
     .replace(/^ +| +$/g, "")
-  // Cap by Unicode code point, like Python's str slice, so an emoji at the
-  // boundary is never split in half (JS slice would cut a surrogate pair).
+  // Limit player labels to 240 Unicode code points without splitting emoji.
+  // This matches play.py.
   var points = Array.from(label)
   if (points.length > playbackTitleLimit) label = points.slice(0, playbackTitleLimit).join("")
   return label || "Dhwani"
