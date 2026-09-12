@@ -134,7 +134,7 @@ test('playbackTitle limits the label to 240 code points without splitting an emo
   assert.strictEqual(cappedTitle.includes('\uFFFD'), false);
 });
 
-test('duration and position formatting stay stable for the panel and MPRIS', () => {
+test('duration and position formatting stay stable for the panel', () => {
   assert.strictEqual(Model.formatDuration(59), '1m');
   assert.strictEqual(Model.formatDuration(3661), '1h 01m');
   assert.strictEqual(Model.formatPosition(0), '0:00');
@@ -255,7 +255,7 @@ test('mergeQueue keeps live queue order over disk order', () => {
   assert.strictEqual(merged[1].episodeId, 'old1');
 });
 
-test('parseState restores the queue and navigation from disk', () => {
+test('parseState restores the queue and navigation from serialized state', () => {
   const stacked = Model.enqueue([], baseEpisode());
   const restored = Model.parseState(JSON.stringify({
     schemaVersion: 1,

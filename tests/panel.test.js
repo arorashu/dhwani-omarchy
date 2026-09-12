@@ -11,6 +11,11 @@ const PANEL = require.resolve('../Panel.qml');
 // 1. Refresh button binding: an active search is always retryable, including
 // when it was started from the Queue tab (the original regression).
 const enabledExpression = qmlBinding(PANEL, 'refreshButton', 'enabled');
+assert.throws(
+  () => qmlBinding(PANEL, 'searchField', 'enabled'),
+  /searchField must define enabled exactly once/,
+  'a missing binding must not be borrowed from a sibling'
+);
 const buttonEnabled = (refreshing, tab, searchActive) =>
   vm.runInNewContext(`(${enabledExpression})`, { root: { refreshing, tab, searchActive } });
 assert.strictEqual(buttonEnabled(false, 1, true), true, 'active Queue search stays refreshable');

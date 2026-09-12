@@ -153,7 +153,7 @@ Playback continues when the panel or shell closes, appears through MPRIS, and no
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for test commands and workstation testing precautions.
 
-The Node suites use only built-ins. Tests that extract JavaScript from QML run it with mocks; they are not QML runtime tests. `queue-persistence.test.js` retains the pure Model checks formerly mislabeled as `test_e2e.py`.
+The Node suites use only built-ins. Tests that extract JavaScript from QML run it with mocks; they are not QML runtime tests. `model-queue-state.test.js` retains the pure Model checks formerly mislabeled as `test_e2e.py`.
 
 The offscreen runtime test requires Quickshell, curl, and `dbus-run-session`. It uses a local fixture API and isolated state/D-Bus session to verify image bindings, request deduplication, QML persistence, search-state generation handling, pagination, and scope. It does not test the full panel, desktop integration, or playback. There is currently no full panel-driven playback E2E test.
 

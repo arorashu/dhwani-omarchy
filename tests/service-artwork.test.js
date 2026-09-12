@@ -11,7 +11,7 @@ const SERVICE = require.resolve('../Service.qml');
 // this is not rendering and not live QML.
 
 function makeService() {
-  const env = { now: 1000000, saves: 0 };
+  const env = { now: 1000000, saves: 0, requests: [] };
   const service = qmlFunctions(
     SERVICE,
     ['showRecord', 'putShow', 'artworkFor', 'ensureArtwork', 'applyNetwork', 'dumpState'],
@@ -22,7 +22,10 @@ function makeService() {
       staleAfterMs: 600000,
       shows: [], showsById: {}, artworkRequested: {}, fetchQueue: [], pendingKind: '', errorText: '',
       queue: [], trending: [], trendingAt: 0, showsAt: 0, showsTotal: 0, showsNextOffset: 0,
-      request(kind, url) { service.fetchQueue = Model.scheduleFetch(service.fetchQueue, kind, url); },
+      request(kind, url) {
+        env.requests.push([kind, url]);
+        service.fetchQueue = Model.scheduleFetch(service.fetchQueue, kind, url);
+      },
       saveSoon() { env.saves++; },
     }
   );
@@ -39,8 +42,8 @@ const showDetail = (podcastId, artworkUrl, episodes) => JSON.stringify({
   total_episodes: 80,
 });
 
-test('a cold feed queues one lightweight artwork lookup per distinct show', () => {
-  const { service } = makeService();
+test('a cold feed requests artwork once per distinct show', () => {
+  const { service, env } = makeService();
   const ownArtwork = { ...founders(), artworkUrl: 'https://example.test/episode.png' };
 
   service.ensureArtwork([founders(), { ...founders() }, lex(), ownArtwork]);
@@ -50,12 +53,13 @@ test('a cold feed queues one lightweight artwork lookup per distinct show', () =
     Model.showUrl(service.apiBase, FOUNDERS_ID, 0).endsWith('?limit=20&offset=0'),
     'normal show pages still request 20 episodes'
   );
-  assert.deepStrictEqual(service.fetchQueue.map(job => job.kind), [
+  assert.deepStrictEqual(env.requests.map(([kind]) => kind), [
     `artwork:${FOUNDERS_ID}`, `artwork:${LEX_ID}`,
   ]);
 
   service.ensureArtwork([founders(), lex()]);
-  assert.strictEqual(service.fetchQueue.length, 2, 'an already-queued lookup is not queued twice');
+  assert.strictEqual(env.requests.length, 2, 'an already-requested show is not requested twice');
+  assert.strictEqual(service.fetchQueue.length, 2);
   assert.strictEqual(service.artworkFor(ownArtwork), ownArtwork.artworkUrl, 'episode artwork is used as-is');
 });
 
@@ -63,7 +67,7 @@ test('artwork hydration fills the show without overwriting paginated episode dat
   const { service, env } = makeService();
   const pages = [{ episodeId: 'kept', title: 'Already loaded' }];
   const foundersRow = founders();
-  service.showsById[FOUNDERS_ID] = { episodes: pages, total: 80, fetchedAt: 42 };
+  service.showsById[FOUNDERS_ID] = { episodes: pages, total: 80, nextOffset: 20, fetchedAt: 42 };
   service.pendingKind = `artwork:${FOUNDERS_ID}`;
 
   service.applyNetwork(showDetail(FOUNDERS_ID, 'https://example.test/show.png'));
@@ -72,6 +76,7 @@ test('artwork hydration fills the show without overwriting paginated episode dat
   assert.strictEqual(foundersRow.artworkUrl, '', 'do not rewrite episode artwork');
   assert.strictEqual(service.showsById[FOUNDERS_ID].episodes, pages);
   assert.strictEqual(service.showsById[FOUNDERS_ID].total, 80);
+  assert.strictEqual(service.showsById[FOUNDERS_ID].nextOffset, 20);
   assert.strictEqual(service.showsById[FOUNDERS_ID].fetchedAt, 42);
   assert.strictEqual(env.saves, 1);
 });
@@ -101,7 +106,7 @@ test('an artwork hit is reused from the already-loaded show list', () => {
   assert.strictEqual(service.fetchQueue.length, 0, 'the loaded show list needs no new request');
 });
 
-test('a missing artwork lookup is not retried until the cache TTL expires', () => {
+test('an artwork request is throttled until the cache TTL expires', () => {
   const { service, env } = makeService();
   service.ensureArtwork([lex()]);
   assert.strictEqual(service.fetchQueue.length, 1);
