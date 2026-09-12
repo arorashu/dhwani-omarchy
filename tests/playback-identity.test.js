@@ -1,14 +1,13 @@
 const assert = require('assert');
-const fs = require('fs');
-const vm = require('vm');
 const Model = require('../Model.js');
+const { qmlFunctions } = require('./qml-vm');
 
 // Playback identity in Service.qml: duplicate-titled episodes must resolve by the
 // real MPRIS xesam:url AND the expected human label. These are the real product
 // functions extracted into a VM with mocked MPRIS players; the companion private
 // pipeline/offscreen check exercises the live metadata source.
 
-const source = fs.readFileSync(require.resolve('../Service.qml'), 'utf8');
+const SERVICE = require.resolve('../Service.qml');
 
 const A = {
   kind: 'episode',
@@ -67,15 +66,15 @@ function makeContext(overrides) {
     },
     configurable: true,
   });
-  for (const name of [
-    'mpvPlayerMedia', 'playerFor', 'allEpisodes', 'findCurrentPlayback',
-    'playEpisode', 'resumePendingPlayback', 'playbackHelperExited',
-    'rememberPlayback', 'capturePlaying',
-  ]) {
-    const match = source.match(new RegExp(`  function ${name}\\([^]*?\\n  \\}`));
-    assert.ok(match, `Service.qml must define ${name}`);
-    context[name] = vm.runInNewContext(`(${match[0].trim()})`, context);
-  }
+  qmlFunctions(
+    SERVICE,
+    [
+      'mpvPlayerMedia', 'playerFor', 'allEpisodes', 'findCurrentPlayback',
+      'playEpisode', 'resumePendingPlayback', 'playbackHelperExited',
+      'rememberPlayback', 'capturePlaying',
+    ],
+    context
+  );
   Object.assign(context, overrides || {});
   return context;
 }

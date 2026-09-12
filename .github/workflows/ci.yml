@@ -25,7 +25,12 @@ jobs:
           ln -s /tmp/omarchy/shell /tmp/qml-imports/qs
           /usr/lib/qt6/bin/qmllint -I /tmp/qml-imports BarWidget.qml Panel.qml Service.qml
       - name: Test model and service orchestration
-        run: node tests/model.test.js && node tests/service.test.js && node tests/playback-identity.test.js
+        run: |
+          node tests/model.test.js
+          node tests/service.test.js
+          node tests/playback-identity.test.js
+          node tests/fixture-flow.test.js
+          node tests/panel.test.js
       - name: Test artwork resolution
         run: node tests/artwork.test.js
       - name: Test search orchestration
@@ -34,11 +39,11 @@ jobs:
         run: python tests/test_qml_runtime.py
       - name: Test crash-accounting gate logic
         run: python tests/test_crash_gate.py
-      - name: Test playback and state
-        run: python tests/test_play.py && python tests/test_state.py && python tests/test_e2e.py && python tests/test_qml_contract.py
+      - name: Test playback and QML contracts
+        run: python tests/test_play.py && python tests/test_qml_contract.py
       - name: Test isolated mpv/MPRIS playback pipeline
-        run: python tests/test_playback_pipeline.py --strict
+        run: python tests/test_playback_pipeline.py
       - name: Lint Python
         run: |
-          ruff check --extend-select I,PLW1510 play.py state.py tests
-          ruff format --check play.py state.py tests
+          ruff check --extend-select I,PLW1510 play.py tests
+          ruff format --check play.py tests

@@ -49,7 +49,7 @@ To install a local checkout instead:
 ```bash
 omarchy plugin validate .
 mkdir -p ~/.config/omarchy/plugins/io.dhwani.listen
-cp -a manifest.json BarWidget.qml Panel.qml Service.qml Model.js play.py state.py \
+cp -a manifest.json BarWidget.qml Panel.qml Service.qml Model.js play.py \
   ~/.config/omarchy/plugins/io.dhwani.listen/
 omarchy-shell shell rescanPlugins
 omarchy plugin enable io.dhwani.listen --section center
@@ -161,15 +161,19 @@ node tests/model.test.js
 node tests/service.test.js
 node tests/artwork.test.js
 node tests/search.test.js
+node tests/fixture-flow.test.js
+node tests/panel.test.js
 python3 tests/test_qml_runtime.py
 python3 tests/test_play.py
-python3 tests/test_state.py
-python3 tests/test_e2e.py
-ruff check play.py state.py tests
-ruff format --check play.py state.py tests
+python3 tests/test_qml_contract.py
+python3 tests/test_playback_pipeline.py
+ruff check play.py tests
+ruff format --check play.py tests
 ```
 
-The offscreen runtime test requires Quickshell, curl, and `dbus-run-session`. It uses a local fixture API and isolated state/D-Bus session to verify image bindings, request deduplication, QML persistence, search-state generation handling, pagination, and scope. It does not test the full panel, desktop integration, or playback. `test_e2e.py` covers the fixture-to-queue data flow, not a running desktop.
+The offscreen runtime test requires Quickshell, curl, and `dbus-run-session`. It uses a local fixture API and isolated state/D-Bus session to verify image bindings, request deduplication, QML persistence, search-state generation handling, pagination, and scope. It does not test the full panel, desktop integration, or playback. `tests/fixture-flow.test.js` covers the fixture-to-queue data flow, not a running desktop.
+
+The isolated playback proof (`test_playback_pipeline.py`) is always strict: it needs `mpv`, `mpv-mpris`, `dbus-run-session`, systemd `busctl`, and `quickshell`, and fails rather than skipping when one is missing. It drives a private sandboxed mpv/MPRIS bus and an offscreen `Service.qml`; it never touches the user's own player or session.
 
 ## Controls
 

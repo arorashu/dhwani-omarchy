@@ -11,10 +11,23 @@ ln -s /usr/share/omarchy/shell "$imports/qs"
 /usr/lib/qt6/bin/qmllint -I "$imports" BarWidget.qml Panel.qml Service.qml
 rm -rf "$imports"
 node tests/model.test.js
+node tests/service.test.js
+node tests/artwork.test.js
+node tests/search.test.js
+node tests/fixture-flow.test.js
+node tests/panel.test.js
+python3 tests/test_qml_runtime.py
 python3 tests/test_play.py
-ruff check play.py tests/test_play.py
-ruff format --check play.py tests/test_play.py
+python3 tests/test_qml_contract.py
+python3 tests/test_playback_pipeline.py
+ruff check play.py tests
+ruff format --check play.py tests
 ```
+
+The playback pipeline proof is always strict: it requires `mpv`, `mpv-mpris`,
+`dbus-run-session`, systemd `busctl`, and `quickshell`, and fails instead of
+skipping when a tool is missing. It runs in a private sandbox and never touches
+the user's own player or session.
 
 ## Crash accounting on a systemd workstation
 

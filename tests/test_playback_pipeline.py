@@ -1,23 +1,15 @@
 #!/usr/bin/env python3
-"""Isolated end-to-end mpv/MPRIS playback proof for ``play.py``.
+"""Isolated mpv/MPRIS playback proof for the real ``play.py`` and ``Service.qml``.
 
-Direct run (``python3 tests/test_playback_pipeline.py``) snapshots a throwaway
-HOME/XDG sandbox and re-executes itself inside a private ``dbus-run-session``.
-Inside that sandbox it generates WAV audio, serves it over loopback HTTP, and
-drives the real production helper ``play.py``:
+The run snapshots a throwaway HOME/XDG sandbox and re-executes itself inside a
+private ``dbus-run-session``: it generates WAV audio, serves it over loopback
+HTTP, and drives the production helper through launch, reuse, Seek/SetPosition,
+duplicate-title URL identity, a followed redirect, and an offscreen
+``Service.qml`` reading the live MPRIS metadata. The user's mpv, session bus,
+audio device, listening queue and state files are never touched.
 
-* launch: mpv starts, IPC reports playing audio with the requested title;
-* reuse: a second ``play.py`` call keeps the same mpv pid and switches tracks;
-* MPRIS: the private bus exposes the title/position and honours Seek/SetPosition
-  (the path ``Service.qml`` uses for ``seekBy``/``seekTo``).
-
-The user's mpv, session bus, audio device, listening queue and state files are
-never touched. Every child is bounded and the task-owned mpv is always asked to
-quit over its own IPC socket.
-
-Missing tools must never yield a green "proof passed". A standalone developer
-run prints a clear SKIP and exits 0; CI passes ``--strict`` (or sets
-``DHWANI_PROOF_STRICT=1``) so the mpv/MPRIS prerequisites are hard requirements.
+Prerequisites (mpv, mpv-mpris, dbus, systemd busctl, quickshell) are hard
+requirements: missing tools fail the proof instead of yielding a green skip.
 """
 
 import functools
@@ -58,8 +50,7 @@ MPRIS_SCRIPT_CANDIDATES = [
 ]
 STARTUP_TIMEOUT = 25
 PROCESS_EXIT_TIMEOUT = 10
-STRICT_ENV = "DHWANI_PROOF_STRICT"
-REQUIRED_TOOLS = ("mpv", "dbus-run-session", "busctl")
+REQUIRED_TOOLS = ("mpv", "dbus-run-session", "busctl", "quickshell")
 
 
 def log(message: str) -> None:
@@ -72,11 +63,6 @@ def check(condition: bool, message: str) -> None:
     log(f"ok: {message}")
 
 
-def strict_mode() -> bool:
-    """CI proof mode: missing prerequisites fail instead of skipping."""
-    return os.environ.get(STRICT_ENV) == "1"
-
-
 def missing_prerequisites() -> list:
     missing = [tool for tool in REQUIRED_TOOLS if shutil.which(tool) is None]
     if not any(path.exists() for path in MPRIS_SCRIPT_CANDIDATES):
@@ -84,20 +70,13 @@ def missing_prerequisites() -> list:
     return missing
 
 
-def require_prerequisites() -> bool:
-    """Return True when the proof can run; False only for a labelled dev skip."""
+def require_prerequisites() -> None:
+    """Fail the proof when any prerequisite is absent; never a green skip."""
     missing = missing_prerequisites()
-    if not missing:
-        return True
-    reason = f"missing playback proof prerequisites: {', '.join(missing)}"
-    if strict_mode():
-        raise SystemExit(f"playback proof failed: {reason}")
-    print(f"SKIP: {reason}")
-    print(
-        "Developer note: install mpv, mpv-mpris, dbus and systemd (busctl) for "
-        f"the full proof, or set {STRICT_ENV}=1 to make missing tools a failure."
-    )
-    return False
+    if missing:
+        raise SystemExit(
+            f"playback proof failed: missing prerequisites: {', '.join(missing)}"
+        )
 
 
 class RangeHandler(http.server.SimpleHTTPRequestHandler):
@@ -230,10 +209,6 @@ Window {
   }
 }
 """
-
-
-def service_identity_supported() -> bool:
-    return shutil.which("quickshell") is not None
 
 
 def run_service_identity(
@@ -409,28 +384,15 @@ def wait_mpris_metadata(name: str, predicate, timeout: float = 10) -> dict:
     raise AssertionError(f"MPRIS metadata never matched (last={last!r})")
 
 
-def mpris_seek(name: str, offset_us: int) -> None:
+def mpris_call(name: str, method: str, signature: str, *args) -> None:
     busctl(
         "call",
         name,
         "/org/mpris/MediaPlayer2",
         "org.mpris.MediaPlayer2.Player",
-        "Seek",
-        "x",
-        str(offset_us),
-    )
-
-
-def mpris_set_position(name: str, track_id: str, position_us: int) -> None:
-    busctl(
-        "call",
-        name,
-        "/org/mpris/MediaPlayer2",
-        "org.mpris.MediaPlayer2.Player",
-        "SetPosition",
-        "ox",
-        track_id,
-        str(position_us),
+        method,
+        signature,
+        *[str(arg) for arg in args],
     )
 
 
@@ -461,12 +423,10 @@ def close_process(pid: int, socket_file: Path) -> None:
 
 
 def process_state(pid: int) -> str | None:
-    """Return the Linux ``/proc/<pid>/stat`` state letter, or None if unknown.
+    """Return the Linux ``/proc/<pid>/stat`` state letter, or None if gone.
 
-    The ``comm`` field is wrapped in parentheses and may itself contain spaces
-    and parentheses, so the state is taken from the text after the *last* ``)``.
-    ``None`` means ``/proc`` is unavailable or unreadable, not that the process
-    is gone; callers then fall back to a signal probe.
+    ``comm`` is wrapped in parentheses and may itself contain spaces, so the
+    state is read after the *last* ``)``.
     """
     try:
         stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8", errors="replace")
@@ -479,46 +439,23 @@ def process_state(pid: int) -> str | None:
     return fields[0] if fields else None
 
 
-def signal_probe(pid: int) -> bool:
-    """Legacy ``os.kill(pid, 0)`` probe: succeeds for zombies as well."""
-    try:
-        os.kill(pid, 0)
-        return True
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-
-
 def alive(pid: int) -> bool:
-    """True only while ``pid`` names a live (not exited) process.
+    """True only while ``pid`` is live. Linux-only: ``/proc`` state is authoritative.
 
-    A container whose PID 1 never reaps orphaned children leaves an exited,
-    detached mpv behind as a zombie; ``os.kill(pid, 0)`` still succeeds for
-    that corpse, which is not evidence of a running player. On Linux the
-    ``/proc`` state is authoritative: only ``Z`` (zombie) and ``X``/``x``
-    (dead) are treated as not alive. Every other state - including stopped or
-    uninterruptible sleep - still counts as a live process, so real running
-    processes are not weakened.
+    An unreaped, exited child stays a zombie and ``os.kill(pid, 0)`` still
+    succeeds for it, which is not evidence of a running player. Only ``Z`` and
+    ``X``/``x`` count as not alive; every other state (including stopped) is live.
     """
     state = process_state(pid)
-    if state is not None:
-        return state not in {"Z", "X", "x"}
-    return signal_probe(pid)
+    return state is not None and state not in {"Z", "X", "x"}
 
 
 def liveness_regression() -> None:
-    """Focused regression: an unreaped exited child is not a live process.
+    """An unreaped exited child is a zombie, not a live process.
 
-    Forks a short-lived child and deliberately does not reap it, so it lingers
-    as a zombie exactly like a detached mpv under a non-reaping container PID 1.
-    Asserts the child is alive while running, that the zombie is not considered
-    alive even though ``os.kill(pid, 0)`` still succeeds, and that it is not
-    alive after the final reap (which always happens in ``finally``).
+    Forks a short-lived child and deliberately does not reap it, exactly like a
+    detached mpv under a non-reaping container PID 1.
     """
-    if not Path("/proc").is_dir():
-        log("regression: /proc unavailable, skipping Linux zombie liveness check")
-        return
     pid = os.fork()
     if pid == 0:  # pragma: no cover - runs in the forked child
         time.sleep(0.5)
@@ -528,13 +465,17 @@ def liveness_regression() -> None:
         deadline = time.monotonic() + PROCESS_EXIT_TIMEOUT
         while time.monotonic() < deadline and process_state(pid) != "Z":
             time.sleep(0.02)
-        state = process_state(pid)
-        check(state == "Z", f"regression: child pid {pid} is an unreaped zombie")
-        check(not alive(pid), f"regression: zombie pid {pid} is not alive")
         check(
-            signal_probe(pid),
-            f"regression: os.kill({pid}, 0) still succeeds for the zombie",
+            process_state(pid) == "Z",
+            f"regression: child pid {pid} is an unreaped zombie",
         )
+        check(not alive(pid), f"regression: zombie pid {pid} is not alive")
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            raise AssertionError(
+                f"regression: os.kill({pid}, 0) should still succeed for a zombie"
+            ) from None
     finally:
         os.waitpid(pid, 0)
     check(not alive(pid), f"regression: reaped child pid {pid} is not alive")
@@ -580,31 +521,22 @@ def child_main(root: Path) -> int:
             "mpv reports the stream seekable",
         )
 
-        missing = missing_prerequisites()
-        if missing:
-            reason = f"missing playback proof prerequisites: {', '.join(missing)}"
-            if strict_mode():
-                raise AssertionError(reason)
-            log(f"skip: {reason}; MPRIS assertions skipped")
-        mpris_available = not missing
-        name = ""
-        if mpris_available:
-            name = mpris_name()
-            props = mpris_properties(name)
-            check(props.get("PlaybackStatus") == "Playing", "MPRIS reports Playing")
-            metadata = props.get("Metadata") or {}
-            log(f"MPRIS metadata (launch): {json.dumps(metadata, default=str)}")
-            check(metadata.get("xesam:title") == TITLE_A, "MPRIS xesam:title matches")
-            check(
-                metadata.get("xesam:url") == f"{base}/episode-a.wav",
-                "MPRIS xesam:url identifies the launched track",
-            )
-            length_us = int(metadata.get("mpris:length", 0))
-            check(
-                abs(length_us / 1_000_000 - DURATION) < 1.5,
-                f"MPRIS mpris:length {length_us}us matches the WAV",
-            )
-            check(props.get("CanSeek") is True, "MPRIS CanSeek is true")
+        name = mpris_name()
+        props = mpris_properties(name)
+        check(props.get("PlaybackStatus") == "Playing", "MPRIS reports Playing")
+        metadata = props.get("Metadata") or {}
+        log(f"MPRIS metadata (launch): {json.dumps(metadata, default=str)}")
+        check(metadata.get("xesam:title") == TITLE_A, "MPRIS xesam:title matches")
+        check(
+            metadata.get("xesam:url") == f"{base}/episode-a.wav",
+            "MPRIS xesam:url identifies the launched track",
+        )
+        length_us = int(metadata.get("mpris:length", 0))
+        check(
+            abs(length_us / 1_000_000 - DURATION) < 1.5,
+            f"MPRIS mpris:length {length_us}us matches the WAV",
+        )
+        check(props.get("CanSeek") is True, "MPRIS CanSeek is true")
 
         position = float(wait_property(socket_file, "playback-time"))
         check(position >= 0, f"playback-time reported ({position:.2f}s)")
@@ -619,79 +551,64 @@ def child_main(root: Path) -> int:
             wait_property(socket_file, "playback-time", lambda value: value < 5)
         )
         check(switched < 5, f"reuse restarted near the beginning ({switched:.2f}s)")
-        if mpris_available:
-            time.sleep(0.3)
-            metadata = mpris_properties(name).get("Metadata") or {}
-            check(
-                metadata.get("xesam:title") == TITLE_B,
-                "MPRIS title followed the switch",
-            )
-            check(
-                metadata.get("xesam:url") == f"{base}/episode-b.wav",
-                "MPRIS xesam:url followed the switch",
-            )
-            track_id = metadata.get("mpris:trackid")
-            check(bool(track_id), "MPRIS exposes mpris:trackid")
-            mpris_seek(name, 5_000_000)
-            after_seek = float(
-                wait_property(socket_file, "playback-time", lambda value: value >= 5)
-            )
-            check(
-                5 <= after_seek < 9,
-                f"MPRIS Seek moved playback-time to {after_seek:.2f}s",
-            )
-            mpris_set_position(name, track_id, 12_000_000)
-            after_set = float(
-                wait_property(socket_file, "playback-time", lambda value: value >= 11.5)
-            )
-            check(
-                11.5 <= after_set < 15,
-                f"MPRIS SetPosition moved playback-time to {after_set:.2f}s",
-            )
+        time.sleep(0.3)
+        metadata = mpris_properties(name).get("Metadata") or {}
+        check(metadata.get("xesam:title") == TITLE_B, "MPRIS title followed the switch")
+        check(
+            metadata.get("xesam:url") == f"{base}/episode-b.wav",
+            "MPRIS xesam:url followed the switch",
+        )
+        track_id = metadata.get("mpris:trackid")
+        check(bool(track_id), "MPRIS exposes mpris:trackid")
+        mpris_call(name, "Seek", "x", 5_000_000)
+        after_seek = float(
+            wait_property(socket_file, "playback-time", lambda value: value >= 5)
+        )
+        check(
+            5 <= after_seek < 9, f"MPRIS Seek moved playback-time to {after_seek:.2f}s"
+        )
+        mpris_call(name, "SetPosition", "ox", track_id, 12_000_000)
+        after_set = float(
+            wait_property(socket_file, "playback-time", lambda value: value >= 11.5)
+        )
+        check(
+            11.5 <= after_set < 15,
+            f"MPRIS SetPosition moved playback-time to {after_set:.2f}s",
+        )
 
-            # Same human label, two different HTTP WAVs: the live metadata URL is
-            # the only thing that distinguishes them across a real mpv reuse.
-            launch(PLAY, f"{base}/episode-a.wav", TITLE_DUPE, env)
-            dupe_a = wait_mpris_metadata(
-                name, lambda m: m.get("xesam:url") == f"{base}/episode-a.wav"
-            )
-            check(
-                dupe_a.get("xesam:title") == TITLE_DUPE,
-                "duplicate A carries the shared human title",
-            )
-            launch(PLAY, f"{base}/episode-b.wav", TITLE_DUPE, env)
-            dupe_b = wait_mpris_metadata(
-                name, lambda m: m.get("xesam:url") == f"{base}/episode-b.wav"
-            )
-            check(
-                dupe_b.get("xesam:title") == TITLE_DUPE,
-                "duplicate B carries the same shared human title",
-            )
+        # Same human label, two HTTP WAVs: the live metadata URL is the only
+        # thing that distinguishes them across a real mpv reuse.
+        launch(PLAY, f"{base}/episode-a.wav", TITLE_DUPE, env)
+        dupe_a = wait_mpris_metadata(
+            name, lambda m: m.get("xesam:url") == f"{base}/episode-a.wav"
+        )
+        check(
+            dupe_a.get("xesam:title") == TITLE_DUPE,
+            "duplicate A carries the shared human title",
+        )
+        launch(PLAY, f"{base}/episode-b.wav", TITLE_DUPE, env)
+        dupe_b = wait_mpris_metadata(
+            name, lambda m: m.get("xesam:url") == f"{base}/episode-b.wav"
+        )
+        check(
+            dupe_b.get("xesam:title") == TITLE_DUPE,
+            "duplicate B carries the same shared human title",
+        )
 
-            # Real offscreen Service.qml consuming the live private MPRIS bus.
-            if service_identity_supported():
-                run_service_identity(root, base, env, f"{base}/episode-b.wav", "B")
-            else:
-                reason = "quickshell unavailable"
-                if strict_mode():
-                    raise AssertionError(
-                        f"offscreen Service identity check requires quickshell ({reason})"
-                    )
-                log(f"skip: offscreen Service identity check ({reason})")
+        # The real Service.qml reads this live bus offscreen and resolves B by URL.
+        run_service_identity(root, base, env, f"{base}/episode-b.wav", "B")
 
-            # A followed redirect still exposes the requested URL (mpv's path),
-            # so exact URL matching needs no speculative normalization.
-            launch(PLAY, f"{base}/redirect-episode-a.wav", TITLE_DUPE, env)
-            redirected = wait_mpris_metadata(
-                name,
-                lambda m: str(m.get("xesam:url", "")).endswith(
-                    "redirect-episode-a.wav"
-                ),
-            )
-            check(
-                redirected.get("xesam:url") == f"{base}/redirect-episode-a.wav",
-                "a followed redirect still reports the requested URL",
-            )
+        # A followed redirect still exposes the requested URL (mpv's path), so
+        # exact URL matching needs no speculative normalization.
+        launch(PLAY, f"{base}/redirect-episode-a.wav", TITLE_DUPE, env)
+        redirected = wait_mpris_metadata(
+            name,
+            lambda m: str(m.get("xesam:url", "")).endswith("redirect-episode-a.wav"),
+        )
+        check(
+            redirected.get("xesam:url") == f"{base}/redirect-episode-a.wav",
+            "a followed redirect still reports the requested URL",
+        )
 
         close_process(pid, socket_file)
         check(not alive(pid), f"mpv pid {pid} was cleaned up")
@@ -703,8 +620,7 @@ def child_main(root: Path) -> int:
 
 
 def parent_main() -> int:
-    if not require_prerequisites():
-        return 0
+    require_prerequisites()
     root = Path(tempfile.mkdtemp(prefix="dhwani-playback-"))
     (root / "home").mkdir()
     runtime = root / "run"
@@ -758,12 +674,8 @@ def main() -> int:
         if len(args) != 2:
             raise SystemExit("--child requires a sandbox root")
         return child_main(Path(args[1]))
-    if "--liveness-regression" in args:
-        liveness_regression()
-        print("Liveness regression passed")
-        return 0
-    if "--strict" in args:
-        os.environ[STRICT_ENV] = "1"
+    if args:
+        raise SystemExit(f"unexpected arguments: {' '.join(args)}")
     liveness_regression()
     return parent_main()
 

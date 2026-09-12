@@ -1,14 +1,8 @@
 const assert = require('assert');
-const fs = require('fs');
-const vm = require('vm');
 const Model = require('../Model.js');
+const { qmlFunctions } = require('./qml-vm');
 
-const source = fs.readFileSync(require.resolve('../Service.qml'), 'utf8');
-function serviceFunction(name, context) {
-  const match = source.match(new RegExp(`  function ${name}\\([^]*?\\n  \\}`));
-  assert.ok(match, `Service.qml must define ${name}`);
-  return vm.runInNewContext(`(${match[0].trim()})`, context);
-}
+const SERVICE = require.resolve('../Service.qml');
 
 const oldEpisode = { episodeId: 'old', title: 'Old', audioUrl: 'https://example.test/old.mp3', position: 10 };
 const freshEpisode = { episodeId: 'new', title: 'Fresh title', audioUrl: 'https://example.test/new.mp3', position: 0 };
@@ -26,7 +20,11 @@ const context = {
   },
   togglePlaying: () => { toggles++; },
 };
-const playEpisode = serviceFunction('playEpisode', context);
+const { playEpisode, resumePendingPlayback } = qmlFunctions(
+  SERVICE,
+  ['playEpisode', 'resumePendingPlayback'],
+  context
+);
 playEpisode(freshEpisode);
 assert.strictEqual(context.queue[0].position, 80);
 assert.strictEqual(context.queue[0].title, 'Fresh title');
@@ -41,7 +39,6 @@ let sought = null;
 context.currentPlayback = { episode: oldEpisode };
 context.playbackLength = 200;
 context.seekTo = (progress) => { sought = progress; return true; };
-const resumePendingPlayback = serviceFunction('resumePendingPlayback', context);
 resumePendingPlayback();
 assert.strictEqual(sought, null, 'Never seek the outgoing track to the incoming position');
 assert.strictEqual(context.pendingSeek, 80);

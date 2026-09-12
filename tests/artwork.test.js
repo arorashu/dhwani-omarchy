@@ -1,23 +1,21 @@
 const assert = require('assert');
-const fs = require('fs');
-const vm = require('vm');
 const Model = require('../Model.js');
+const { qmlFunctions } = require('./qml-vm');
 
-const source = fs.readFileSync(require.resolve('../Service.qml'), 'utf8');
+const SERVICE = require.resolve('../Service.qml');
 let now = 1000000;
 let saves = 0;
-const service = vm.createContext({
-  Model, Date: { now: () => now }, apiBase: 'https://api.example.test', staleAfterMs: 600000,
-  shows: [], showsById: {}, artworkRequested: {}, fetchQueue: [], pendingKind: '', errorText: '',
-  queue: [], trending: [], trendingAt: 0, showsAt: 0, showsTotal: 0, showsNextOffset: 0,
-  request(kind, url) { service.fetchQueue = Model.scheduleFetch(service.fetchQueue, kind, url); },
-  saveSoon() { saves++; },
-});
-for (const name of ['showRecord', 'putShow', 'artworkFor', 'ensureArtwork', 'applyNetwork', 'dumpState']) {
-  const match = source.match(new RegExp(`  function ${name}\\([^]*?\\n  \\}`));
-  assert.ok(match, `Service.qml must define ${name}`);
-  service[name] = vm.runInContext(`(${match[0].trim()})`, service);
-}
+const service = qmlFunctions(
+  SERVICE,
+  ['showRecord', 'putShow', 'artworkFor', 'ensureArtwork', 'applyNetwork', 'dumpState'],
+  {
+    Model, Date: { now: () => now }, apiBase: 'https://api.example.test', staleAfterMs: 600000,
+    shows: [], showsById: {}, artworkRequested: {}, fetchQueue: [], pendingKind: '', errorText: '',
+    queue: [], trending: [], trendingAt: 0, showsAt: 0, showsTotal: 0, showsNextOffset: 0,
+    request(kind, url) { service.fetchQueue = Model.scheduleFetch(service.fetchQueue, kind, url); },
+    saveSoon() { saves++; },
+  }
+);
 const founders = { kind: 'episode', podcastId: 'BgvRZTg8v9GYMpbxcvFk', artworkUrl: '' };
 const lex = { kind: 'episode', podcastId: 'XgosndFz4gzOM4oHrfYI', artworkUrl: '' };
 const ownArtwork = { ...founders, artworkUrl: 'https://example.test/episode.png' };

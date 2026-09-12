@@ -1,14 +1,13 @@
 const assert = require('assert');
-const fs = require('fs');
-const vm = require('vm');
 const Model = require('../Model.js');
+const { qmlFunctions } = require('./qml-vm');
 
 // Search orchestration in Service.qml: generation-stamped responses, immediate
 // result invalidation, raw offsets, debounce, failure retryability, and obsolete-job
 // cleanup. This runs the extracted QML JavaScript in a VM with the properties the
 // functions touch; it is not a live QML test.
 
-const source = fs.readFileSync(require.resolve('../Service.qml'), 'utf8');
+const SERVICE = require.resolve('../Service.qml');
 
 function makeContext() {
   const context = {
@@ -58,11 +57,7 @@ function makeContext() {
     'beginSearch', 'applyNetworkFailure', 'runSearch', 'pageSearch', 'clearSearch', 'applyNetwork',
     'pageShows', 'pageShow', 'showRecord', 'putShow', 'showNextOffset', 'applyState', 'dumpState',
   ];
-  for (const name of names) {
-    const match = source.match(new RegExp(`  function ${name}\\([^]*?\\n  \\}`));
-    assert.ok(match, `Service.qml must define ${name}`);
-    context[name] = vm.runInNewContext(`(${match[0].trim()})`, context);
-  }
+  qmlFunctions(SERVICE, names, context);
   return context;
 }
 
