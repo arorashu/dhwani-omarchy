@@ -15,8 +15,8 @@ python3 tests/test_qml_runtime.py
 python3 tests/test_play.py
 python3 tests/test_qml_contract.py
 python3 tests/test_playback_pipeline.py
-ruff check --extend-select I,PLW1510 play.py tests
-ruff format --check play.py tests
+ruff check --extend-select I,PLW1510 play.py state_storage.py tests
+ruff format --check play.py state_storage.py tests
 ```
 
 The playback pipeline proof is always strict: it requires `mpv`, `mpv-mpris`,
@@ -38,6 +38,6 @@ skipping when a tool is missing. It uses private state and a private D-Bus sessi
   helper playback or full panel E2E. A pass in one does not prove the others.
   Keep unresolved failures visible alongside green results.
 
-For live testing, copy only the six installation files listed in the README. Let Omarchy's plugin watcher settle before restarting the shell; copying files and immediately restarting can trigger [Quickshell #956](https://github.com/quickshell-mirror/quickshell/issues/956) on version 0.3.1.
+For live testing, copy only the seven installation files listed in the README. Let Omarchy's plugin watcher settle before restarting the shell; copying files and immediately restarting can trigger [Quickshell #956](https://github.com/quickshell-mirror/quickshell/issues/956) on version 0.3.1.
 
 Report security issues through GitHub's private vulnerability reporting rather than a public issue.
