@@ -34,5 +34,5 @@ jobs:
         run: python tests/test_playback_pipeline.py
       - name: Lint Python
         run: |
-          ruff check --extend-select I,PLW1510 play.py tests
-          ruff format --check play.py tests
+          ruff check --extend-select I,PLW1510 play.py state_storage.py tests
+          ruff format --check play.py state_storage.py tests

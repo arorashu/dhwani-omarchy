@@ -23,7 +23,15 @@ Window {
   Connections {
     target: service
     function onStateReadyChanged() {
-      if (service.stateReady) Qt.callLater(function() { service.beginSearch("episodes", "stale", "") })
+      if (!service.stateReady) return
+      Qt.callLater(function() {
+        service.beginSearch("episodes", "stale", "")
+        alphaSearch.start()
+        alphaReport.start()
+        pagedReport.start()
+        scopedReport.start()
+        showsReport.start()
+      })
     }
   }
 
@@ -42,28 +50,28 @@ Window {
   }
 
   Timer {
+    id: alphaSearch
     interval: 400
-    running: true
     onTriggered: service.beginSearch("episodes", "alpha", "")
   }
   Timer {
+    id: alphaReport
     interval: 2600
-    running: true
     onTriggered: { root.report("ALPHA"); service.pageSearch() }
   }
   Timer {
+    id: pagedReport
     interval: 3400
-    running: true
     onTriggered: { root.report("PAGED"); service.beginSearch("episodes", "alpha", "9QqWbjH5mqlrsiaHMba1") }
   }
   Timer {
+    id: scopedReport
     interval: 4300
-    running: true
     onTriggered: { root.report("SCOPED"); service.beginSearch("shows", "alpha", "9QqWbjH5mqlrsiaHMba1") }
   }
   Timer {
+    id: showsReport
     interval: 5200
-    running: true
     onTriggered: { root.report("SHOWS"); console.log("SEARCH_IMAGE:" + root.artworkReady); Qt.quit() }
   }
   Timer {

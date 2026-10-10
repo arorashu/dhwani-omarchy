@@ -2,6 +2,7 @@
 
 import json
 import os
+import stat
 import struct
 import subprocess
 import tempfile
@@ -37,14 +38,19 @@ def image_png():
 def offscreen_env(folder: Path) -> dict:
     runtime = folder / "runtime"
     runtime.mkdir(mode=0o700, exist_ok=True)
+    home = folder / "home"
+    home.mkdir(mode=0o700, exist_ok=True)
     env = dict(
         os.environ,
+        HOME=str(home),
         QT_QPA_PLATFORM="offscreen",
         QT_QPA_PLATFORMTHEME="",
         QT_QUICK_BACKEND="software",
-        XDG_STATE_HOME=str(folder / "state"),
         XDG_CACHE_HOME=str(folder / "cache"),
+        XDG_CONFIG_HOME=str(folder / "config"),
+        XDG_DATA_HOME=str(folder / "data"),
         XDG_RUNTIME_DIR=str(runtime),
+        XDG_STATE_HOME=str(folder / "state"),
     )
     for key in ("WAYLAND_DISPLAY", "DISPLAY"):
         env.pop(key, None)
@@ -131,7 +137,11 @@ def test_artwork_runtime(folder):
         assert sorted(lookups) == sorted(
             f"/v1/podcasts/{podcast_id}?limit=1&offset=0" for podcast_id in IDS
         ), (lookups, logs)
-        state = json.loads((folder / "state/dhwani-omarchy/state.json").read_text())
+        state_dir = folder / "state/dhwani-omarchy"
+        state_file = state_dir / "state.json"
+        state = json.loads(state_file.read_text())
+        assert stat.S_IMODE(state_dir.stat().st_mode) == 0o700
+        assert stat.S_IMODE(state_file.stat().st_mode) == 0o600
         for podcast_id in IDS:
             record = state["cache"]["showsById"][podcast_id]
             assert record["artworkUrl"] == f"{base}/artwork.png"
@@ -167,42 +177,44 @@ def test_hydration_runtime(folder):
         "audioUrl": "https://www.youtube.com/watch?v=abc",
         "position": 4,
     }
-    (state_dir / "state.json").write_text(
-        json.dumps(
-            {
-                "schemaVersion": 1,
-                "queue": [rss_row, youtube_row],
-                "nav": {},
-                "cache": {
-                    "trending": {"fetchedAt": 111, "episodes": [rss_row, youtube_row]},
-                    "shows": {
-                        "fetchedAt": 222,
-                        "items": [
-                            {
-                                "kind": "show",
-                                "podcastId": SEARCH_SHOW,
-                                "title": "Founders",
-                                "artworkUrl": "https://example.test/founders.png",
-                                "episodeCount": 88,
-                            }
-                        ],
-                        "total": 88,
-                        "nextOffset": 20,
-                    },
-                    "showsById": {
-                        SEARCH_SHOW: {
+    state_file = state_dir / "state.json"
+    original_state = json.dumps(
+        {
+            "schemaVersion": 1,
+            "queue": [rss_row, youtube_row],
+            "nav": {},
+            "cache": {
+                "trending": {"fetchedAt": 111, "episodes": [rss_row, youtube_row]},
+                "shows": {
+                    "fetchedAt": 222,
+                    "items": [
+                        {
+                            "kind": "show",
+                            "podcastId": SEARCH_SHOW,
                             "title": "Founders",
                             "artworkUrl": "https://example.test/founders.png",
-                            "fetchedAt": 333,
-                            "total": 88,
-                            "nextOffset": 20,
-                            "episodes": [youtube_row, rss_row],
+                            "episodeCount": 88,
                         }
-                    },
+                    ],
+                    "total": 88,
+                    "nextOffset": 20,
                 },
-            }
-        )
+                "showsById": {
+                    SEARCH_SHOW: {
+                        "title": "Founders",
+                        "artworkUrl": "https://example.test/founders.png",
+                        "fetchedAt": 333,
+                        "total": 88,
+                        "nextOffset": 20,
+                        "episodes": [youtube_row, rss_row],
+                    }
+                },
+            },
+        }
     )
+    state_file.write_text(original_state)
+    state_dir.chmod(0o755)
+    state_file.chmod(0o644)
     logs, result = run_quickshell(
         folder,
         (ROOT / "tests/fixtures/hydration-runtime.qml").read_text(),
@@ -225,6 +237,76 @@ def test_hydration_runtime(folder):
     assert report["showsTotal"] == 88, report
     assert report["showsItems"] == 1, report
     assert report["queue"] == 1, report
+    assert stat.S_IMODE(state_dir.stat().st_mode) == 0o700
+    assert stat.S_IMODE(state_file.stat().st_mode) == 0o600
+    assert state_file.read_text() == original_state
+
+
+def test_storage_atomic_writes(folder):
+    state_dir = folder / "state/dhwani-omarchy"
+    state_dir.mkdir(parents=True)
+    state_file = state_dir / "state.json"
+    state_file.write_text(
+        json.dumps(
+            {
+                "schemaVersion": 1,
+                "queue": [
+                    {
+                        "kind": "episode",
+                        "episodeId": "private-state-episode",
+                        "podcastId": SEARCH_SHOW,
+                        "title": "Private state",
+                        "podcastTitle": "Fixture show",
+                        "audioUrl": "https://example.test/private.mp3",
+                        "position": 12,
+                    }
+                ],
+                "nav": {},
+                "cache": {},
+            }
+        )
+    )
+    state_dir.chmod(0o755)
+    state_file.chmod(0o644)
+
+    logs, result = run_quickshell(
+        folder,
+        (ROOT / "tests/fixtures/state-storage-runtime.qml").read_text(),
+        "http://127.0.0.1:1",
+    )
+    assert result.returncode == 0, logs
+    assert "STORAGE_LOADED:1:12" in logs, logs
+    assert "STORAGE_WRITTEN:47" in logs, logs
+    assert stat.S_IMODE(state_dir.stat().st_mode) == 0o700
+    assert stat.S_IMODE(state_file.stat().st_mode) == 0o600
+    saved = json.loads(state_file.read_text())
+    assert len(saved["queue"]) == 1, saved
+    assert saved["queue"][0]["episodeId"] == "private-state-episode", saved
+    assert saved["queue"][0]["position"] == 47, saved
+
+
+def test_storage_security_failure(folder):
+    state_root = folder / "state"
+    state_root.mkdir(parents=True)
+    unrelated = folder / "unrelated"
+    unrelated.mkdir()
+    unrelated.chmod(0o755)
+    sentinel = unrelated / "state.json"
+    sentinel.write_text("unrelated data")
+    sentinel.chmod(0o644)
+    (state_root / "dhwani-omarchy").symlink_to(unrelated, target_is_directory=True)
+
+    logs, result = run_quickshell(
+        folder,
+        (ROOT / "tests/fixtures/state-storage-failure.qml").read_text(),
+        "http://127.0.0.1:1",
+    )
+    assert result.returncode == 0, logs
+    assert "STORAGE_FAILURE:false:false:" in logs, logs
+    assert "could not secure Dhwani state" in logs, logs
+    assert sentinel.read_text() == "unrelated data"
+    assert stat.S_IMODE(unrelated.stat().st_mode) == 0o755
+    assert stat.S_IMODE(sentinel.stat().st_mode) == 0o644
 
 
 def search_page(base: str, query: str, kind: str, offset: int, podcast_id: str):
@@ -380,7 +462,9 @@ if __name__ == "__main__":
         root = Path(directory)
         test_artwork_runtime(root / "artwork")
         test_hydration_runtime(root / "hydration")
+        test_storage_atomic_writes(root / "storage-writes")
+        test_storage_security_failure(root / "storage-failure")
         test_search_runtime(root / "search")
     print(
-        "QML runtime tests passed: artwork resolution, state hydration, and search state"
+        "QML runtime tests passed: private state, artwork, hydration, and search state"
     )

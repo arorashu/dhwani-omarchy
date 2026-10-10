@@ -29,6 +29,8 @@ Item {
   property real pendingSeek: 0
   property string pendingSeekEpisodeId: ""
   property bool stateReady: false
+  property bool storageReady: false
+  property bool storageFailed: false
   property bool hydrating: false
   property string errorText: ""
   property bool refreshing: false
@@ -52,6 +54,7 @@ Item {
   readonly property real playbackLength: playbackPlayer && playbackPlayer.lengthSupported ? Math.max(0, Number(playbackPlayer.length) || 0) : (currentPlayback ? currentPlayback.episode.duration : 0)
   readonly property bool canSeek: playbackPlayer !== null && playbackPlayer.canSeek === true
   readonly property string helperPath: decodeURIComponent(String(Qt.resolvedUrl("play.py")).replace(/^file:\/\//, ""))
+  readonly property string storageHelperPath: decodeURIComponent(String(Qt.resolvedUrl("state_storage.py")).replace(/^file:\/\//, ""))
   readonly property string stateDir: (Quickshell.env("XDG_STATE_HOME") || (Quickshell.env("HOME") + "/.local/state")) + "/dhwani-omarchy"
 
   function configure(base, limit, ttl) {
@@ -502,6 +505,10 @@ Item {
   }
 
   function saveState() {
+    if (!storageReady) {
+      if (!storageFailed) saveTimer.restart()
+      return
+    }
     if (hydrating) {
       saveTimer.restart()
       return
@@ -540,19 +547,31 @@ Item {
   }
 
   Process {
-    id: ensureStateDir
-    command: ["mkdir", "-p", root.stateDir]
+    id: secureState
+    command: ["python3", root.storageHelperPath, root.stateDir]
     running: true
-    onExited: stateFile.reload()
+    stderr: StdioCollector { id: storageStderr; waitForEnd: true }
+    onExited: function(exitCode) {
+      if (exitCode !== 0) {
+        root.errorText = (storageStderr.text || "").replace(/\s+/g, " ").trim() || "Dhwani could not secure local state"
+        root.storageFailed = true
+        return
+      }
+      root.storageReady = true
+      stateFile.reload()
+    }
   }
 
   FileView {
     id: stateFile
-    path: root.stateDir + "/state.json"
+    path: root.storageReady ? root.stateDir + "/state.json" : ""
+    blockLoading: !root.storageReady
+    blockAllReads: !root.storageReady
+    blockWrites: !root.storageReady
     atomicWrites: true
     watchChanges: true
     printErrors: false
-    onFileChanged: if (!root.hydrating) reload()
+    onFileChanged: if (root.storageReady && !root.hydrating) reload()
     onLoaded: {
       if (root.hydrating) {
         root.stateReady = true
@@ -563,7 +582,7 @@ Item {
       root.stateReady = true
     }
     onLoadFailed: {
-      if (root.stateReady || root.hydrating) return
+      if (!root.storageReady || root.stateReady || root.hydrating) return
       root.applyState("", false)
       root.stateReady = true
     }

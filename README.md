@@ -26,7 +26,7 @@ Dhwani intentionally has no account screen, transcript reader, or second media p
 - `mpv`
 - `mpv-mpris`
 
-Current Omarchy installations include the media components. Community plugins run unsandboxed, so review the six installed files before enabling the plugin.
+Current Omarchy installations include the media components. Community plugins run unsandboxed, so review the seven installed files before enabling the plugin.
 
 ## Install
 
@@ -102,6 +102,8 @@ Queue, navigation cache, and listening positions are stored locally in:
 ~/.local/state/dhwani-omarchy/state.json
 ```
 
+Dhwani restricts that directory to the current user (`0700`) and the state file to owner read/write (`0600`) before loading or saving it.
+
 ## Privacy and API use
 
 Dhwani works without a login. Requests identify the plugin version for server diagnostics:
@@ -117,12 +119,12 @@ Only HTTP(S) non-YouTube audio sources are accepted. API responses are capped at
 
 ## Local development
 
-Install a local checkout by copying the six plugin files:
+Install a local checkout by copying the seven plugin files:
 
 ```bash
 omarchy plugin validate .
 mkdir -p ~/.config/omarchy/plugins/io.dhwani.listen
-cp -a manifest.json BarWidget.qml Panel.qml Service.qml Model.js play.py \
+cp -a manifest.json BarWidget.qml Panel.qml Service.qml Model.js play.py state_storage.py \
   ~/.config/omarchy/plugins/io.dhwani.listen/
 omarchy-shell shell rescanPlugins
 omarchy plugin enable io.dhwani.listen --section center
